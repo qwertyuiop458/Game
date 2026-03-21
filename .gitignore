@@ -1,0 +1,4 @@
+.artifacts/
+extractor_out/
+__pycache__/
+*.pyc
