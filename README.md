@@ -8,6 +8,17 @@ Offline extractor for `240x320-rus-zombie-infection.jar`.
 python3 offline_extractor.py 240x320-rus-zombie-infection.jar
 ```
 
+Equivalent modular entrypoints are available under `tools/`:
+
+```bash
+python3 -m tools.extract_zombie_infection 240x320-rus-zombie-infection.jar
+python3 -m tools.parse_packs 240x320-rus-zombie-infection.jar
+python3 -m tools.decode_text_t0 240x320-rus-zombie-infection.jar
+python3 -m tools.decode_audio_m13 240x320-rus-zombie-infection.jar
+python3 -m tools.decode_graphics 240x320-rus-zombie-infection.jar
+python3 -m tools.decode_maps 240x320-rus-zombie-infection.jar
+```
+
 By default, the extractor writes to `.artifacts/extractor_out/`, which is gitignored so generated binaries, PNGs, MIDI files, and JSON dumps do not end up in pull requests. Use `-o <dir>` if you want a different output location.
 
 ## GitHub guide
