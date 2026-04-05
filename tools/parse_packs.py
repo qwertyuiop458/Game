@@ -43,6 +43,7 @@ def parse_packs(jar: Path, output: Path) -> dict:
                     })
             validation_report[name] = {
                 'header_mode': container.header_mode,
+                'validation': 'ok' if container.valid else 'errors',
                 'valid': container.valid,
                 'validation_errors': container.validation_errors,
                 'count': container.chunk_count,
@@ -51,6 +52,29 @@ def parse_packs(jar: Path, output: Path) -> dict:
                 'max_chunk_size': max(chunk_sizes) if chunk_sizes else 0,
                 'suspicious_chunks': suspicious_chunks,
             }
+    for name, error in project.container_errors.items():
+        out[name] = {
+            'header_mode': error['header_mode'],
+            'validation': 'errors',
+            'valid': False,
+            'validation_errors': error['validation_errors'],
+            'chunk_count': error['chunk_count'],
+            'header_size': None,
+            'payload_size': 0,
+            'offsets': [],
+            'chunks': [],
+        }
+        validation_report[name] = {
+            'header_mode': error['header_mode'],
+            'validation': 'errors',
+            'valid': False,
+            'validation_errors': error['validation_errors'],
+            'count': error['chunk_count'],
+            'offsets': [],
+            'min_chunk_size': 0,
+            'max_chunk_size': 0,
+            'suspicious_chunks': [],
+        }
     write_json(output / 'chunks' / 'containers.json', out)
     write_json(output / 'chunks' / 'container_validation.json', validation_report)
     return out

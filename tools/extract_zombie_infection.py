@@ -42,9 +42,17 @@ def run_extractor(jar: Path, output: Path) -> dict:
     ui = export_ui(project, output)
     final_table = build_final_table(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
     chapter_matrix = build_chapter_matrix(jar, output)
+    container_quality = {
+        name: {
+            'header_mode': info.get('header_mode'),
+            'validation': info.get('validation', 'errors'),
+        }
+        for name, info in chunks.items()
+    }
     summary = {
         'jar': str(jar),
         'containers': chunks,
+        'container_quality': container_quality,
         'text': text,
         'audio': audio,
         'maps': maps_bundle['maps'],
