@@ -25,13 +25,13 @@ def test_trace_resolution_prefers_chunk0() -> None:
     tables = {
         'chunk0_levels': {
             'levels': [
-                {'chapter_hint': 8, 'map_subchunk_hint': 11},
+                {'chapter_hint': 8, 'script_subchunk_hint': 4, 'map_subchunk_hint': 11},
             ],
         }
     }
     trace = resolve_level_trace(0, tables)
     assert trace.chapter == 2
-    assert trace.script_chunk == 12
+    assert trace.script_chunk == 14
     assert trace.map_subchunk == 11
     assert trace.source == 'chunk0_levels'
 
@@ -57,6 +57,7 @@ def test_common_opcode_structures_have_named_fields_and_confidence() -> None:
     assert command['refs']['m8']['confidence'] >= 0.9
     assert command['refs']['m6']['pack'] == 'm6_1'
     assert command['refs']['m6']['subchunk'] == 9
+    assert any(link['target'] == 'm8' for link in command['command_links'])
 
 
 def test_semantic_level_export(tmp_path: Path) -> None:
@@ -73,8 +74,9 @@ def test_semantic_level_export(tmp_path: Path) -> None:
         ],
     }]
     result = build_semantic_level_exports(tmp_path, tables, scripts)
-    assert result['levels'][0]['path'] == 'scripts/semantic/levels/0.json'
-    exported = (tmp_path / 'scripts' / 'semantic' / 'levels' / '0.json').read_text(encoding='utf-8')
-    assert 'map_refs' in exported
-    assert 'object_placements' in exported
+    assert result['levels'][0]['path'] == 'scripts/semantic/level_00.json'
+    exported = (tmp_path / 'scripts' / 'semantic' / 'level_00.json').read_text(encoding='utf-8')
+    assert 'tile_layers' in exported
+    assert 'collision_layers' in exported
+    assert 'objects' in exported
     assert 'triggers' in exported

@@ -8,7 +8,7 @@ from typing import Any
 from tools.common import ensure_dir, u16le, write_json
 
 
-OPCODE_MODEL: dict[int, dict[str, Any]] = {
+KNOWN_OPCODES: dict[int, dict[str, Any]] = {
     99: {
         'mnemonic': 'load_m8_script',
         'arg_types': ['u8:channel', 'u8:m8_pack_index', 'u8:m8_subchunk_index', 'u8:flag_a', 'u8:flag_b', 'u8:flag_c'],
@@ -38,6 +38,32 @@ OPCODE_MODEL: dict[int, dict[str, Any]] = {
         'arg_types': ['u8:size', 'bytes:payload'],
         'refs': [],
         'category': 'data_blob',
+    },
+}
+
+OPCODE_MODEL: dict[int, dict[str, Any]] = KNOWN_OPCODES
+
+M9_DOCS: dict[str, Any] = {
+    'chunk0': {
+        'record_size': 4,
+        'fields': [
+            {'name': 'chapter_hint', 'type': 'u8'},
+            {'name': 'script_subchunk_hint', 'type': 'u8'},
+            {'name': 'map_subchunk_hint', 'type': 'u8'},
+            {'name': 'reserved_or_flags', 'type': 'u8'},
+        ],
+    },
+    'chunk1': {
+        'entry_type': 'u16',
+        'guess': 'script offset / selector table',
+    },
+    'chunk2': {
+        'entry_type': 'u16',
+        'guess': 'trigger / object selector table',
+    },
+    'mission_script_rule': {
+        'formula': 'script_chunk = 10 + level_index',
+        'applies_to_levels': '0..N',
     },
 }
 
@@ -82,6 +108,7 @@ def parse_m9_chunk_tables(payloads: list[bytes]) -> dict[str, Any]:
         return [u16le(data, pos) for pos in range(0, limit, 2)]
 
     return {
+        'docs': M9_DOCS,
         'chunk0_levels': {
             'size': len(chunk0),
             'record_size': 4,
@@ -105,17 +132,19 @@ def resolve_level_trace(level_index: int, m9_tables: dict[str, Any], chapter_cou
         entry = levels[level_index]
         chapter = entry.get('chapter_hint', 0) % max(1, chapter_count)
         map_subchunk = entry.get('map_subchunk_hint', 0)
+        script_subchunk = entry.get('script_subchunk_hint', level_index)
         source = 'chunk0_levels'
     else:
         chapter = level_index % max(1, chapter_count)
         map_subchunk = 0
+        script_subchunk = level_index
         source = 'fallback_formula'
 
     return LevelTrace(
         level_index=level_index,
         chapter=chapter,
-        script_chunk=10 + chapter,
-        script_pack_name=f'm9#{10 + chapter}',
+        script_chunk=10 + script_subchunk,
+        script_pack_name=f'm9#{10 + script_subchunk}',
         map_pack_name=f'm6_{chapter}',
         map_subchunk=map_subchunk,
         source=source,
@@ -172,9 +201,12 @@ def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> di
     object_placements = []
     triggers = []
     control_flow: dict[str, Any] = {}
+    command_links: list[dict[str, Any]] = []
 
     if params:
-        map_refs.append({'pack': f'm6_{meta[0] % 6}', 'subchunk': params[0] % 255, 'source': 'params[0]'})
+        map_ref = {'pack': f'm6_{meta[0] % 6}', 'subchunk': params[0] % 255, 'source': 'params[0]'}
+        map_refs.append(map_ref)
+        command_links.append({'target': 'm6', 'pack': map_ref['pack'], 'subchunk': map_ref['subchunk'], 'kind': 'map_ref'})
 
     if opcode in (100, 101):
         control_flow = {
@@ -189,6 +221,24 @@ def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> di
         object_placements.append({'object_id': params[0], 'x': params[1], 'y': params[2]})
 
     parsed_common = _parse_common_command(opcode, meta, params) if opcode in COMMON_COMMAND_NAMES else None
+    if parsed_common:
+        command_links.append(
+            {
+                'target': 'm8',
+                'pack_index': parsed_common['refs']['m8']['pack_index'],
+                'subchunk_index': parsed_common['refs']['m8']['subchunk_index'],
+                'kind': 'script_ref',
+            }
+        )
+        if parsed_common['refs']['m6'].get('subchunk') is not None:
+            command_links.append(
+                {
+                    'target': 'm6',
+                    'pack': parsed_common['refs']['m6']['pack'],
+                    'subchunk': parsed_common['refs']['m6']['subchunk'],
+                    'kind': 'common_command_ref',
+                }
+            )
 
     return {
         'args': {
@@ -211,6 +261,7 @@ def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> di
         'triggers': triggers,
         'object_placements': object_placements,
         'map_refs': map_refs,
+        'command_links': command_links,
     }
 
 
@@ -261,6 +312,7 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
             base['triggers'] = []
             base['map_refs'] = []
             base['object_placements'] = []
+            base['command_links'] = [{'target': 'm8', 'pack_index': values[1], 'subchunk_index': values[2], 'kind': 'opcode_99_explicit'}]
             commands.append(base)
             continue
 
@@ -279,6 +331,7 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
             base['triggers'] = []
             base['map_refs'] = []
             base['object_placements'] = []
+            base['command_links'] = []
             commands.append(base)
             continue
 
@@ -312,8 +365,17 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
     }
 
 
+def parse_m8_chunk_semantic(chunk: bytes) -> dict[str, Any]:
+    parsed = parse_script_chunk_semantic(chunk)
+    parsed['subchunk_offsets_guess'] = []
+    for command in parsed['commands']:
+        if command['opcode'] in (99, 100, 101, 102, 200):
+            parsed['subchunk_offsets_guess'].append(command['offset'])
+    return parsed
+
+
 def build_semantic_level_exports(output: Path, m9_tables: dict[str, Any], m9_scripts: list[dict[str, Any]]) -> dict[str, Any]:
-    levels_dir = output / 'scripts' / 'semantic' / 'levels'
+    levels_dir = output / 'scripts' / 'semantic'
     ensure_dir(levels_dir)
 
     level_count = m9_tables.get('chunk0_levels', {}).get('level_count', 0)
@@ -327,22 +389,38 @@ def build_semantic_level_exports(output: Path, m9_tables: dict[str, Any], m9_scr
         commands = script_entry.get('commands', []) if script_entry else []
 
         map_refs = []
-        placements = []
+        objects = []
         triggers = []
+        command_links = []
         for command in commands:
             map_refs.extend(command.get('map_refs', []))
-            placements.extend(command.get('object_placements', []))
+            objects.extend(command.get('object_placements', []))
             triggers.extend(command.get('triggers', []))
+            command_links.extend(command.get('command_links', []))
+
+        tile_layers = [
+            {'pack': ref['pack'], 'subchunk': ref['subchunk'], 'kind': 'tile'}
+            for ref in map_refs
+            if ref.get('pack') and ref.get('subchunk') is not None
+        ]
+        collision_layers = [
+            {'pack': ref['pack'], 'subchunk': ref['subchunk'] + 1, 'kind': 'collision'}
+            for ref in map_refs
+            if ref.get('pack') and ref.get('subchunk') is not None
+        ]
 
         payload = {
             'level_index': level_index,
             'trace': trace.__dict__,
+            'tile_layers': tile_layers,
+            'collision_layers': collision_layers,
             'map_refs': map_refs,
-            'object_placements': placements,
+            'objects': objects,
             'triggers': triggers,
+            'command_links': command_links,
             'script_command_count': len(commands),
         }
-        level_path = levels_dir / f'{level_index}.json'
+        level_path = levels_dir / f'level_{level_index:02d}.json'
         write_json(level_path, payload)
         level_index_entries.append({'level_index': level_index, 'path': str(level_path.relative_to(output))})
 
