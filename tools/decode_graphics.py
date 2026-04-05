@@ -236,6 +236,38 @@ def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     }
 
 
+def _build_chunk_trace(pack: str, chunk_index: int, sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
+    frame_trace = []
+    for frame in sprite.frames:
+        payload = frame.image_payload
+        frame_trace.append(
+            {
+                'frame': frame.frame_id,
+                'record_type': frame.record_type,
+                'size': {'width': frame.width, 'height': frame.height},
+                'origin': {'x': frame.x, 'y': frame.y},
+                'pivot': {'x': frame.pivot_x, 'y': frame.pivot_y},
+                'palette': {
+                    'index': frame.palette_index,
+                    'binding': frame.palette_binding,
+                },
+                'payload': asdict(payload) if payload is not None else None,
+            }
+        )
+    palette_trace = [asdict(palette) for palette in sprite.palettes]
+    return {
+        'pack': pack,
+        'chunk': chunk_index,
+        'pixel_format': atlas.pixel_format,
+        'frame_count': len(sprite.frames),
+        'palette_count': len(sprite.palettes),
+        'region_count': len(sprite.regions),
+        'frame_trace': frame_trace,
+        'palette_trace': palette_trace,
+        'region_trace': [asdict(region) for region in sprite.regions],
+    }
+
+
 def _candidate_external_chunks(container_payloads: list[bytes], table_chunk_index: int) -> list[tuple[int, bytes]]:
     candidates: list[tuple[int, bytes]] = []
     for idx in range(table_chunk_index + 1, len(container_payloads)):
@@ -258,7 +290,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
     ensure_dir(extracted_meta_dir)
 
     result: dict[str, Any] = {'containers': {}, 'images': []}
-    graphics_manifest: dict[str, Any] = {'sprites': []}
+    graphics_manifest: dict[str, Any] = {'sprites': [], 'trace': []}
     for name in ('m3_0', 'm4_0', 'm7', 'm11_0', 'm11_1'):
         container = project.containers.get(name)
         if not container or not container.payloads:
@@ -340,10 +372,24 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             manifest = _build_runtime_manifest(sprite, atlas)
             manifest_path = pack_dir / 'manifest.json'
             write_json(manifest_path, manifest)
+
+            image_chunk_metadata_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / 'frames.json'
+            write_json(
+                image_chunk_metadata_path,
+                {
+                    'pack': name,
+                    'chunk': chunk_index,
+                    'pixel_format': atlas.pixel_format,
+                    'frames': exported_frames,
+                    'payloads': [asdict(payload) for payload in sprite.payloads],
+                    'palettes': [asdict(palette) for palette in sprite.palettes],
+                },
+            )
             container_manifest['chunks'].append({
                 'chunk': chunk_index,
                 'metadata': str(metadata_path.relative_to(output)),
                 'manifest': str(manifest_path.relative_to(output)),
+                'images_metadata': str(image_chunk_metadata_path.relative_to(output)),
                 'decoded_frame_count': len(exported_frames),
             })
             graphics_manifest['sprites'].append(
@@ -364,6 +410,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     ],
                 }
             )
+            graphics_manifest['trace'].append(_build_chunk_trace(name, chunk_index, sprite, atlas))
 
         if container_manifest['chunks']:
             result['containers'][name] = container_manifest
