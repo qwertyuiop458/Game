@@ -286,7 +286,8 @@ def build_chapter_mission_matrix(
             {'kind': 'map_pack', **_validate_link(map_pack, None)},
             {'kind': 'text_chunk', **_validate_link('t0', text_entry.get('chunk_index') if isinstance(text_entry, dict) else None)},
         ]
-        links.extend({'kind': 'graphics_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in graphics_refs)
+        chapter_graphics_refs = _partition(graphics_refs, chapter)
+        links.extend({'kind': 'graphics_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in chapter_graphics_refs)
         links.extend({'kind': 'audio_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in audio_refs)
         links.extend(
             {'kind': 'script_chunk', **_validate_link('m9', mission.get('script_chunk'))}
