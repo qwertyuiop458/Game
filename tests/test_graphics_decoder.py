@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+import pytest
 from tools.common import JarProject, u16le
 from tools.graphics_decoder import (
     PAL_FMT_ARGB8888,
@@ -11,6 +12,8 @@ from tools.graphics_decoder import (
 )
 
 
+@pytest.mark.graphics
+@pytest.mark.extractor
 class TestPaletteDecodingOnKnownChunks(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -57,6 +60,8 @@ class TestPaletteDecodingOnKnownChunks(unittest.TestCase):
         self.assertTrue(keyed_has_alpha)
 
 
+@pytest.mark.graphics
+@pytest.mark.extractor
 class TestAtlasChain(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
