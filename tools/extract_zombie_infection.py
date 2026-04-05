@@ -6,7 +6,7 @@ from pathlib import Path
 from tools.common import JarProject, ensure_dir, write_json
 from tools.decode_audio_m13 import decode_audio
 from tools.decode_graphics import decode_graphics
-from tools.decode_maps import build_final_table, decode_maps
+from tools.decode_maps import build_chapter_mission_matrix, build_final_table, decode_maps
 from tools.decode_text_t0 import ENCODING_CHAIN, decode_text
 from tools.linker import build_chapter_matrix
 from tools.parse_packs import parse_packs
@@ -41,6 +41,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
     graphics = decode_graphics(jar, output)
     ui = export_ui(project, output)
     final_table = build_final_table(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
+    chapter_mission_matrix = build_chapter_mission_matrix(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
     chapter_matrix = build_chapter_matrix(jar, output)
     container_quality = {
         name: {
@@ -60,6 +61,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'graphics': graphics,
         'ui': ui,
         'final_table_rows': len(final_table),
+        'chapter_mission_matrix_rows': len(chapter_mission_matrix),
         'chapter_matrix_rows': len(chapter_matrix.get('chapters', [])),
         'chapter_matrix_cross_check': chapter_matrix.get('cross_check', {}),
     }
