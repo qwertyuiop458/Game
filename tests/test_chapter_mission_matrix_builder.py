@@ -74,3 +74,43 @@ def test_build_chapter_mission_matrix_exports_and_validates(tmp_path: Path) -> N
 
     payload = json.loads(json_path.read_text(encoding='utf-8'))
     assert payload[0]['graphics pack'] == 'm3_0, m4_0'
+
+
+def test_build_chapter_mission_matrix_skips_invalid_audio_paths(tmp_path: Path) -> None:
+    output = tmp_path
+    text_dir = output / 'extracted' / 'text'
+    text_dir.mkdir(parents=True)
+    for idx in range(6):
+        (text_dir / f't0_{idx:02d}_full.txt').write_text(f'chapter {idx}', encoding='utf-8')
+
+    maps_report = {f'm6_{idx}': {'map_count': 1} for idx in range(6)}
+    script_report = {'m9': {'chapter_mission_links': {'mission_links': []}}}
+    graphics_report = {'containers': {}}
+    audio_report = {
+        'midi': [
+            'extracted/audio/m13_1/00.mid',
+            'extracted/audio/m13_1/nonnumeric.mid',
+            'extracted/audio/m13_1/nested/01.mid',
+            'wrong/audio/m13_1/02.mid',
+        ],
+        'raw_audio': [
+            {'path': 'extracted/audio/m13_2/03.bin'},
+            {'path': 'extracted/audio/m13_2/nested/04.bin'},
+            {'path': 'extracted/audio/m13_2/not_a_number.bin'},
+            {'path': 'bad-prefix/m13_2/05.bin'},
+        ],
+    }
+    text_report = {'chunks': [{'chunk_index': idx, 'path': f'extracted/text/t0_{idx:02d}_full.txt'} for idx in range(6)]}
+
+    rows = build_chapter_mission_matrix(
+        _ProjectStub(),
+        output,
+        maps_report,
+        script_report,
+        graphics_report,
+        audio_report,
+        text_report,
+    )
+
+    all_audio_assets = {asset for row in rows for asset in row['audio assets']}
+    assert all_audio_assets == {'m13_1#00', 'm13_2#03'}
