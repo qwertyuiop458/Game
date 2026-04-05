@@ -118,22 +118,18 @@ def test_problematic_runtime_packs_frames_json_contract(tmp_path: Path) -> None:
         frames_json_path = output / chunk_entry['images_metadata']
         frames_payload = json.loads(frames_json_path.read_text(encoding='utf-8'))
 
+        # Подробный контракт структуры/status покрывается быстрым smoke-набором.
+        # В integration-проверке оставляем роль end-to-end sanity для real jar.
         assert frames_payload['pack'] == pack
         assert frames_payload['chunk'] == chunk
-        assert isinstance(frames_payload['frames'], list)
-        assert isinstance(frames_payload['payloads'], list)
+        assert len(frames_payload['frames']) == chunk_entry['decoded_frame_count']
         assert len(frames_payload['frames']) > 0
 
-        assert len(frames_payload['frames']) == chunk_entry['decoded_frame_count']
-        frame_indexes = {frame['frame'] for frame in frames_payload['frames']}
-        payload_indexes = {payload['frame_index'] for payload in frames_payload['payloads']}
-        assert frame_indexes.issubset(payload_indexes)
-
+        raw_sizes = []
         for frame in frames_payload['frames']:
-            diagnostics = frame['diagnostics']
             raw_payload = Path(output / frame['raw_payload']).read_bytes()
+            diagnostics = frame['diagnostics']
             assert diagnostics['raw_payload_size'] == len(raw_payload)
-            if diagnostics['raw_payload_size'] > 0:
-                assert frame['decode_status'] in {'decoded', 'degraded_decode', 'failed_decode'}
-                if frame['decode_status'] != 'failed_decode':
-                    assert diagnostics['alpha']['non_zero'] > 0
+            raw_sizes.append(len(raw_payload))
+
+        assert any(size > 0 for size in raw_sizes)
