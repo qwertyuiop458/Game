@@ -84,3 +84,58 @@ def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_pat
     written_summary = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
     assert written_summary['container_quality'] == container_quality
     assert written_summary['audio_stats'] == summary['audio_stats']
+
+
+def test_summary_normalizes_required_summary_blocks(monkeypatch, tmp_path: Path) -> None:
+    jar = tmp_path / 'dummy.jar'
+    jar.write_bytes(b'')
+    output = tmp_path / 'out'
+
+    class FakeProject:
+        def __init__(self, jar_path: Path, out_path: Path) -> None:
+            self.jar_path = jar_path
+            self.output = out_path
+            self.raw_entries: dict[str, bytes] = {}
+
+        def load(self) -> None:
+            return None
+
+    monkeypatch.setattr('tools.extract_zombie_infection.JarProject', FakeProject)
+    monkeypatch.setattr('tools.extract_zombie_infection.parse_packs', lambda *_args, **_kwargs: {})
+    monkeypatch.setattr('tools.extract_zombie_infection.decode_text', lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        'tools.extract_zombie_infection.decode_audio',
+        lambda *_args, **_kwargs: {'audio_coverage': {'total_tracks': 1, 'decoded_tracks': 10}},
+    )
+    monkeypatch.setattr(
+        'tools.extract_zombie_infection.decode_maps',
+        lambda *_args, **_kwargs: {'maps': {}, 'scripts': {}, 'map_mismatch_summary': {'total_maps': 4}},
+    )
+    monkeypatch.setattr('tools.extract_zombie_infection.decode_graphics', lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        'tools.extract_zombie_infection.extract_ui_assets',
+        lambda *_args, **_kwargs: {'copied': {}, 'missing': [], 'manifest': 'extracted/meta/ui_manifest.json'},
+    )
+    monkeypatch.setattr('tools.extract_zombie_infection.build_final_table', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr('tools.extract_zombie_infection.build_chapter_mission_matrix', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr('tools.extract_zombie_infection.build_chapter_matrix', lambda *_args, **_kwargs: {'chapters': []})
+
+    summary = run_extractor(jar, output)
+    assert summary['audio_coverage'] == {'total_tracks': 1, 'decoded_tracks': 1, 'coverage_percent': 0.0}
+    assert summary['audio_validation_summary'] == {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0}
+    assert summary['map_mismatch_summary'] == {
+        'total_maps': 4,
+        'mismatched_maps': 0,
+        'mismatch_details': [],
+        'maps_validation_passed': 0,
+        'maps_validation_failed': 0,
+    }
+    assert summary['chapter_matrix_cross_check'] == {
+        'total_refs': 0,
+        'valid_refs': 0,
+        'valid_confidence_totals': {'direct': 0, 'inferred': 0, 'unknown': 0},
+        'invalid_refs': [],
+        'dropped_invalid_refs': [],
+        'conflict_summary': {'total_conflicts': 0, 'by_type': {}},
+    }
+    assert summary['linker_conflicts_summary'] == {'total_conflicts': 0, 'blocking_conflicts': 0, 'conflicts': []}

@@ -22,5 +22,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest
 
+      - name: Run contract smoke tests
+        run: |
+          pytest -q tests/test_summary_contract.py tests/test_extract_zombie_infection_summary.py
+
       - name: Run tests
         run: pytest -q
