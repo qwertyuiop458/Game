@@ -103,7 +103,7 @@ def decode_chunk_with_fallback(chunk: bytes, forced_encoding: str | None = None)
         replacement_count = decoded.count('\ufffd')
         candidate = {
             'raw_text': decoded,
-            'decoded_text': sanitize_text(decoded),
+            'decoded_text': sanitize_decoded_text(decoded),
             'encoding_used': encoding,
             'replacement_stats': {
                 'replacement_count': replacement_count,
