@@ -234,39 +234,3 @@ bash tools/ci/trigger_github_run.sh
 ```
 
 Это полностью кодовый запуск `workflow_dispatch` без GitHub CLI.
-
-По умолчанию `tools/ci/trigger_github_run.sh` уже настроен на:
-- `REPO=qwertyuiop458/Game`
-- `REF=work`
-
-Достаточно передать только токен:
-
-```bash
-export GH_TOKEN=<token>
-bash tools/ci/trigger_github_run.sh
-```
-
-### Полный кодовый сценарий вместо UI-кликов
-
-Скрипт `tools/ci/run_apk_via_issue_comment.py` автоматизирует весь UI-процесс кодом:
-1. публикует `/run-apk` в Issue/PR;
-2. ждёт появления run `run-apk.yml`;
-3. ждёт завершения run;
-4. скачивает и распаковывает artifact `emulator-output`.
-
-Пример:
-
-```bash
-export GH_TOKEN=<token>
-python3 tools/ci/run_apk_via_issue_comment.py \
-  --repo qwertyuiop458/Game \
-  --issue-number 123 \
-  --output-dir .artifacts/github-workflow
-```
-
-После выполнения в `.artifacts/github-workflow/emulator-output/` появятся:
-- `result.env`
-- `result.md`
-- `logcat.txt`
-- `screen-final.png`
-- `dumpsys-activities.txt`
