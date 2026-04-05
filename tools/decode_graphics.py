@@ -34,12 +34,17 @@ def _export_frame_grid(output: Path, atlas: Atlas, frame_exports: list[dict[str,
     canvas = [0] * (cols * tile_w * rows * tile_h)
 
     def paste(px: list[int], fw: int, fh: int, dx: int, dy: int) -> None:
+        if len(px) < fw * fh:
+            px = px + [0] * (fw * fh - len(px))
         for yy in range(fh):
             for xx in range(fw):
                 canvas[(dy + yy) * (cols * tile_w) + (dx + xx)] = px[yy * fw + xx]
 
     for idx, item in enumerate(atlas_frames):
-        decoded = atlas.rgba_for_frame(item['frame_index'], 0)
+        frame_index = item.get('frame_index', item.get('frame'))
+        if frame_index is None:
+            continue
+        decoded = atlas.rgba_for_frame(frame_index, 0)
         if decoded is None:
             continue
         fw, fh, rgba = decoded
@@ -90,49 +95,70 @@ def decode_graphics(jar: Path, output: Path) -> dict:
     ensure_dir(decoded_dir)
     ensure_dir(output / 'extracted' / 'tiles')
 
-    result: dict[str, Any] = {'containers': {}}
+    result: dict[str, Any] = {'containers': {}, 'images': []}
     for name in ('m3_0', 'm4_0', 'm7', 'm11_0', 'm11_1'):
         container = project.containers.get(name)
         if not container or not container.payloads:
             continue
 
-        atlas = parse_atlas(name, container.payloads[0])
-        pack_dir = sprites_dir / name
-        decoded_pack_dir = decoded_dir / name
-        ensure_dir(pack_dir)
-        ensure_dir(decoded_pack_dir)
-
-        metadata = atlas.to_metadata()
-        exported_frames = []
-        png_paths: dict[int, str] = {}
-
-        for frame in atlas.frames:
-            decoded = atlas.rgba_for_frame(frame.index, 0)
-            if decoded is None:
+        container_manifest: dict[str, Any] = {'chunks': []}
+        for chunk_index, payload in enumerate(container.payloads):
+            if not payload:
                 continue
-            width, height, rgba = decoded
+            try:
+                atlas = parse_atlas(name, payload, chunk_index=chunk_index)
+            except (IndexError, ValueError):
+                continue
 
-            png_path = decoded_pack_dir / f'frame_{frame.index:03d}.png'
-            write_rgba_png(png_path, width, height, rgba)
-            rel = str(png_path.relative_to(output))
-            png_paths[frame.index] = rel
-            exported_frames.append({'frame_index': frame.index, 'path': rel, 'width': width, 'height': height})
+            pack_dir = sprites_dir / name / f'chunk_{chunk_index:02d}'
+            ensure_dir(pack_dir)
 
-        metadata['exported_frames'] = exported_frames
-        metadata['palette_previews'] = _export_palette_previews(output, atlas, name)
-        metadata['tile_preview'] = _export_frame_grid(output, atlas, exported_frames, name)
+            metadata = atlas.to_metadata()
+            exported_frames = []
+            png_paths: dict[int, str] = {}
 
-        write_json(pack_dir / 'metadata.json', metadata)
+            for frame in atlas.frames:
+                decoded = atlas.rgba_for_frame(frame.index, 0)
+                if decoded is None:
+                    continue
+                width, height, rgba = decoded
 
-        manifest = _build_runtime_manifest(atlas, png_paths)
-        write_json(decoded_pack_dir / 'manifest.json', manifest)
-        result['containers'][name] = {
-            'metadata': str((pack_dir / 'metadata.json').relative_to(output)),
-            'manifest': str((decoded_pack_dir / 'manifest.json').relative_to(output)),
-            'decoded_frame_count': len(exported_frames),
-        }
+                png_path = decoded_dir / f'{name}_chunk{chunk_index:02d}_frame{frame.index:03d}.png'
+                write_rgba_png(png_path, width, height, rgba)
+                rel = str(png_path.relative_to(output))
+                png_paths[frame.index] = rel
+                frame_export = {
+                    'container': name,
+                    'chunk': chunk_index,
+                    'frame': frame.index,
+                    'path': rel,
+                    'width': width,
+                    'height': height,
+                }
+                exported_frames.append(frame_export)
+                result['images'].append(frame_export)
 
-    write_json(decoded_dir / 'graphics_index.json', result)
+            metadata['exported_frames'] = exported_frames
+            metadata['palette_previews'] = _export_palette_previews(output, atlas, f'{name}_chunk{chunk_index:02d}')
+            metadata['tile_preview'] = _export_frame_grid(output, atlas, exported_frames, f'{name}_chunk{chunk_index:02d}')
+
+            metadata_path = pack_dir / 'metadata.json'
+            write_json(metadata_path, metadata)
+
+            manifest = _build_runtime_manifest(atlas, png_paths)
+            manifest_path = pack_dir / 'manifest.json'
+            write_json(manifest_path, manifest)
+            container_manifest['chunks'].append({
+                'chunk': chunk_index,
+                'metadata': str(metadata_path.relative_to(output)),
+                'manifest': str(manifest_path.relative_to(output)),
+                'decoded_frame_count': len(exported_frames),
+            })
+
+        if container_manifest['chunks']:
+            result['containers'][name] = container_manifest
+
+    write_json(decoded_dir / 'index.json', result)
     return result
 
 

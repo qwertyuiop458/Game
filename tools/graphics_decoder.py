@@ -100,6 +100,7 @@ def decode_palette_entries(blob: bytes, fmt: int, size: int, cursor: int = 0) ->
 @dataclass
 class Atlas:
     name: str
+    chunk_index: int
     flags: int
     frames: list[Frame]
     regions: list[Region]
@@ -235,6 +236,7 @@ class Atlas:
     def to_metadata(self) -> dict[str, Any]:
         return {
             'atlas_name': self.name,
+            'chunk_index': self.chunk_index,
             'atlas_flags': self.flags,
             'frame_count': len(self.frames),
             'palette_count': len(self.palettes),
@@ -262,7 +264,7 @@ def _read_u16(data: bytes, cursor: int) -> tuple[int, int]:
     return u16le(data, cursor), cursor + 2
 
 
-def parse_atlas(name: str, chunk0: bytes) -> Atlas:
+def parse_atlas(name: str, chunk0: bytes, chunk_index: int = 0) -> Atlas:
     data = chunk0
     cursor = 2  # static marker/unused in current assets
     flags = u32le(data, cursor)
@@ -384,6 +386,7 @@ def parse_atlas(name: str, chunk0: bytes) -> Atlas:
 
     return Atlas(
         name=name,
+        chunk_index=chunk_index,
         flags=flags,
         frames=frames,
         regions=regions,
