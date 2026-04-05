@@ -10,21 +10,11 @@ from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semant
 CONFIDENCE_VALUES = ('direct', 'inferred', 'unknown')
 
 
-def _classify_confidence(rule: str) -> str:
-    """Classify evidence confidence for chapter links.
-
-    Rules:
-    - direct: explicit id/container/chunk references from known structures or script commands.
-    - inferred: heuristic assignments (even partitioning, global/shared pack assumptions).
-    - unknown: fallback rows without chapter-specific evidence.
-    """
-    normalized = rule.strip().lower()
-    if normalized in {'structure', 'script', 'id_reference', 'explicit_reference'}:
+def _classify_confidence(source: str) -> str:
+    if source in ('structure', 'script'):
         return 'direct'
-    if normalized in {'heuristic', 'name_match', 'partition'}:
+    if source == 'heuristic':
         return 'inferred'
-    if normalized in {'unconfirmed', 'fallback', 'missing_evidence'}:
-        return 'unknown'
     return 'unknown'
 
 
@@ -233,6 +223,42 @@ def _detect_conflicts(rows: list[dict[str, Any]], chapter_count: int) -> list[di
     return conflicts
 
 
+def _cross_check_source_conflicts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    conflicts: list[dict[str, Any]] = []
+    for row in rows:
+        chapter = int(row['chapter'])
+        chapter_key = str(row.get('chapter_key', f'chapter_{chapter}'))
+        assignments: dict[str, set[str]] = {
+            'maps': {entry['ref']['container'] for entry in row.get('direct_refs', []) if entry.get('kind') == 'map_pack'},
+            'scripts': {
+                entry['ref']['container']
+                for entry in row.get('direct_refs', [])
+                if entry.get('kind') in ('m6_subchunk_semantic', 'm9_command_m6_semantic')
+            },
+            'text_metadata': {f'm6_{chapter}'},
+        }
+        source_pairs = (('maps', 'scripts'), ('maps', 'text_metadata'), ('scripts', 'text_metadata'))
+        for source_a, source_b in source_pairs:
+            targets_a = sorted(assignments[source_a])
+            targets_b = sorted(assignments[source_b])
+            if not targets_a or not targets_b or targets_a == targets_b:
+                continue
+            conflicts.append(
+                {
+                    'entity': chapter_key,
+                    'source_a': {'name': source_a, 'targets': targets_a},
+                    'source_b': {'name': source_b, 'targets': targets_b},
+                    'conflict_type': 'chapter_target_mismatch',
+                    'suggested_resolution': (
+                        'Сверить m9 semantic links и m6 chapter pack; '
+                        'для приоритета использовать script-derived связи при наличии подтверждённых команд.'
+                    ),
+                }
+            )
+            break
+    return conflicts
+
+
 def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     project = JarProject(jar, output)
     project.load()
@@ -397,25 +423,25 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         all_refs.extend([entry['ref'] for entry in direct_candidates])
         all_refs.extend([entry['ref'] for entry in inferred_candidates])
 
-    conflicts = _detect_conflicts(rows, chapter_count=chapter_count)
+    structural_conflicts = _detect_conflicts(rows, chapter_count=chapter_count)
+    source_conflicts = _cross_check_source_conflicts(rows)
     conflict_counts: dict[str, int] = {}
-    for conflict in conflicts:
-        conflict_type = str(conflict.get('type', 'unknown'))
+    for conflict in source_conflicts:
+        conflict_type = str(conflict.get('conflict_type', 'unknown'))
         conflict_counts[conflict_type] = conflict_counts.get(conflict_type, 0) + 1
 
     cross_check = {
         'total_refs': len(all_refs),
         'valid_refs': 0,
-        'valid_confidence_totals': {value: 0 for value in CONFIDENCE_VALUES},
+        'valid_confidence_totals': {key: 0 for key in CONFIDENCE_VALUES},
         'invalid_refs': [],
         'dropped_invalid_refs': dropped_invalid_refs,
         'conflict_summary': {
-            'total_conflicts': len(conflicts),
+            'total_conflicts': len(source_conflicts),
             'by_type': conflict_counts,
         },
     }
-    all_entries = all_candidate_entries
-    for entry in all_entries:
+    for entry in all_candidate_entries:
         ref = entry['ref']
         valid, error = _validate_reference(project, ref)
         if valid:
@@ -427,15 +453,25 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         else:
             cross_check['invalid_refs'].append({'ref': ref, 'error': error, 'confidence': entry.get('confidence', 'unknown')})
 
-    matrix = {'chapters': rows, 'cross_check': cross_check, 'conflicts': conflicts}
+    matrix = {
+        'chapters': rows,
+        'cross_check': cross_check,
+        'conflicts': structural_conflicts,
+        'link_conflicts': source_conflicts,
+        'linker_conflicts_summary': {
+            'total_conflicts': len(source_conflicts),
+            'blocking_conflicts': len(source_conflicts),
+            'conflicts': source_conflicts,
+        },
+    }
     json_path = docs_dir / 'chapter_matrix.json'
-    conflicts_path = docs_dir / 'linker_conflicts.json'
+    conflicts_path = docs_dir / 'link_conflicts.json'
     md_path = docs_dir / 'chapter_matrix.md'
     write_json(json_path, matrix)
     write_json(
         conflicts_path,
         {
-            'conflicts': conflicts,
+            'conflicts': source_conflicts,
             'summary': cross_check['conflict_summary'],
         },
     )
@@ -493,11 +529,19 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         )
     lines.append('')
     lines.append(f"Cross-check: {cross_check['valid_refs']}/{cross_check['total_refs']} references are valid and used in the matrix.")
+    lines.append('## Conflicts')
     lines.append(
         'Conflict summary: '
         f"{cross_check['conflict_summary']['total_conflicts']} total "
         f"({', '.join(f'{k}={v}' for k, v in sorted(cross_check['conflict_summary']['by_type'].items())) or 'none'})."
     )
+    if source_conflicts:
+        lines.append('| entity | conflict_type | source_a | source_b |')
+        lines.append('| --- | --- | --- | --- |')
+        for conflict in source_conflicts:
+            left = f"{conflict['source_a']['name']}={','.join(conflict['source_a']['targets'])}"
+            right = f"{conflict['source_b']['name']}={','.join(conflict['source_b']['targets'])}"
+            lines.append(f"| {conflict['entity']} | {conflict['conflict_type']} | {left} | {right} |")
     if cross_check['invalid_refs']:
         lines.append('Invalid references:')
         for item in cross_check['invalid_refs']:
