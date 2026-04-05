@@ -234,14 +234,3 @@ bash tools/ci/trigger_github_run.sh
 ```
 
 Это полностью кодовый запуск `workflow_dispatch` без GitHub CLI.
-
-По умолчанию `tools/ci/trigger_github_run.sh` уже настроен на:
-- `REPO=qwertyuiop458/Game`
-- `REF=work`
-
-Достаточно передать только токен:
-
-```bash
-export GH_TOKEN=<token>
-bash tools/ci/trigger_github_run.sh
-```
