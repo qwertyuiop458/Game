@@ -94,8 +94,6 @@ class ChunkInfo:
     size: int
     crc32_hex: str
     sha1: str
-    # Backward-compatible alias; can be removed after downstream consumers migrate to crc32_hex.
-    crc32: str
 
 
 class ContainerValidationError(ValueError):
@@ -267,8 +265,6 @@ class Container:
                 size=len(chunk),
                 crc32_hex=f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
                 sha1=hashlib.sha1(chunk).hexdigest(),
-                # Backward-compatible alias; mirrors crc32_hex.
-                crc32=f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
             ).__dict__)
         return {
             'header_mode': self.header_mode,
