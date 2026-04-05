@@ -8,31 +8,46 @@
   },
   "case_id": "index8_rgb565_external_alpha",
   "description": "Synthetic reference case: index8_rgb565_external_alpha",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 1020,
+        "b": 510,
+        "g": 510,
+        "r": 510
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 2,
+      "opaque_pixels": 4,
+      "pixel_count": 6,
+      "rgba_sha256": "e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4",
+      "width": 3
+    }
+  ],
   "inputs": {
     "external_sha256": {
       "2": "b625fb32a006ff0fe9aa25104b3c5ca08954eb8eca58b7c5755ae1d55a4b440a"
     },
     "table_sha256": "8c184e64cb665f12eb65890db07c3a96e41e786fa504158023a5804a3499a918"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 170.0,
-      "b": 85.0,
-      "g": 85.0,
-      "r": 85.0
-    },
+  "totals": {
     "channel_sum": {
       "a": 1020,
       "b": 510,
       "g": 510,
       "r": 510
     },
-    "height": 2,
+    "decoded_frames": 1,
+    "degraded_frames": 0,
+    "failed_frames": 0,
+    "frame_count": 1,
+    "frames_rgba_sha256": "3dea0f668ff1643fc46a5a0d622e74b8464bb4950c4cde3a7e69ae9751e7e76a",
     "opaque_pixels": 4,
     "pixel_count": 6,
-    "png_sha256": "dae7b32e937177ef07f6aaafe01c85e08fb97430c8900b6ef2f3c45bbe59d6fc",
-    "rgba_sha256": "e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4",
-    "unique_colors": 3,
-    "width": 3
+    "preview_height": 2,
+    "preview_png_sha256": "dae7b32e937177ef07f6aaafe01c85e08fb97430c8900b6ef2f3c45bbe59d6fc",
+    "preview_rgba_sha256": "e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4",
+    "preview_width": 3
   }
 }

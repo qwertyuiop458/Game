@@ -8,29 +8,44 @@
   },
   "case_id": "index8_inline_zero_alpha_palette",
   "description": "INDEX_8 с непустым raw и палитрой с нулевой alpha",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 1020,
+        "b": 2,
+        "g": 2,
+        "r": 2
+      },
+      "decode_status": "degraded_decode",
+      "frame_index": 0,
+      "height": 2,
+      "opaque_pixels": 4,
+      "pixel_count": 4,
+      "rgba_sha256": "bc77372e17c119b4391327af9c99ad567a02e7eb92b6447be4c96e4634e2875f",
+      "width": 2
+    }
+  ],
   "inputs": {
     "external_sha256": {},
     "table_sha256": "d77b851b3c43bdcd4a4265b9d64f13d81cd54b1dca780e625be6e344c226c001"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 0.0,
-      "b": 127.5,
-      "g": 127.5,
-      "r": 127.5
-    },
+  "totals": {
     "channel_sum": {
-      "a": 0,
-      "b": 510,
-      "g": 510,
-      "r": 510
+      "a": 1020,
+      "b": 2,
+      "g": 2,
+      "r": 2
     },
-    "height": 2,
-    "opaque_pixels": 0,
+    "decoded_frames": 0,
+    "degraded_frames": 1,
+    "failed_frames": 0,
+    "frame_count": 1,
+    "frames_rgba_sha256": "74eaebdf3a9b89afa8b42a99abbda7cc9dbe9bbd9e0aa951c45a3f15aeb0ed97",
+    "opaque_pixels": 4,
     "pixel_count": 4,
-    "png_sha256": "e24bb00570de7357d827fa29f50012a3b122603489b6b86a37a84a25909edbc9",
-    "rgba_sha256": "7bdb8f9036da02e7e4741df570b67a7549ed542e7a103f2c19b12700dc8f0bec",
-    "unique_colors": 2,
-    "width": 2
+    "preview_height": 2,
+    "preview_png_sha256": "87d13b54f54c0f2c756818edafc6636b05146cf00a57d1395f03ff464cc0274c",
+    "preview_rgba_sha256": "bc77372e17c119b4391327af9c99ad567a02e7eb92b6447be4c96e4634e2875f",
+    "preview_width": 2
   }
 }

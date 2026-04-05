@@ -8,31 +8,46 @@
   },
   "case_id": "minimal_index8_external",
   "description": "Минимальный atlas: INDEX_8, payload в следующем чанке",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 1020,
+        "b": 510,
+        "g": 510,
+        "r": 510
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 2,
+      "opaque_pixels": 4,
+      "pixel_count": 4,
+      "rgba_sha256": "f38d522927a4f3eebe2cc4647870653de12ad51f6937f0e49fb398a9324ec6d6",
+      "width": 2
+    }
+  ],
   "inputs": {
     "external_sha256": {
       "2": "d5e2d2ac07b741be58f6b9e50ede5fdcf16f3e8053ecef9350e7744b0d8bd90c"
     },
     "table_sha256": "496741d271aac04bbb3778250a6e9734973a82ac369ef172d8f5d626de587e9e"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 255.0,
-      "b": 127.5,
-      "g": 127.5,
-      "r": 127.5
-    },
+  "totals": {
     "channel_sum": {
       "a": 1020,
       "b": 510,
       "g": 510,
       "r": 510
     },
-    "height": 2,
+    "decoded_frames": 1,
+    "degraded_frames": 0,
+    "failed_frames": 0,
+    "frame_count": 1,
+    "frames_rgba_sha256": "e6f53615a89dec945a6021cd013aa7fb342cbcc4556c5873abba8366e44e677b",
     "opaque_pixels": 4,
     "pixel_count": 4,
-    "png_sha256": "248c43a8627c6db8f95626beaca3b056bcfafcd036a4344dd3ed14e1e704da84",
-    "rgba_sha256": "f38d522927a4f3eebe2cc4647870653de12ad51f6937f0e49fb398a9324ec6d6",
-    "unique_colors": 2,
-    "width": 2
+    "preview_height": 2,
+    "preview_png_sha256": "248c43a8627c6db8f95626beaca3b056bcfafcd036a4344dd3ed14e1e704da84",
+    "preview_rgba_sha256": "f38d522927a4f3eebe2cc4647870653de12ad51f6937f0e49fb398a9324ec6d6",
+    "preview_width": 2
   }
 }
