@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tools.decode_graphics import _render_frame_with_diagnostics
+from tools.decode_graphics import decode_graphics
 from tools.graphics_decoder import parse_atlas
 from tools.reference_cases import _build_expected_case, load_reference_cases, verify_reference_cases
 
@@ -18,6 +19,7 @@ def test_graphics_reference_cases_are_consistent() -> None:
 
 @pytest.mark.graphics
 @pytest.mark.extractor
+@pytest.mark.smoke
 def test_graphics_reference_cases_include_stable_render_metrics() -> None:
     for case in load_reference_cases(Path('tests/reference_cases/graphics')):
         expected = json.loads(case.expected_metadata.read_text(encoding='utf-8'))
@@ -46,6 +48,10 @@ def test_reference_update_requires_explicit_confirmation(tmp_path: Path) -> None
     )
     assert denied.returncode != 0
     assert '--confirm-update' in denied.stdout + denied.stderr
+    assert (
+        'Pending differences' in denied.stdout + denied.stderr
+        or 'No reference changes detected' in denied.stdout + denied.stderr
+    )
 
     allowed = subprocess.run(
         ['python3', '-m', 'tools.reference_cases', '--cases-dir', str(case_dir), '--update', '--confirm-update'],
@@ -72,3 +78,44 @@ def test_non_empty_raw_does_not_render_fully_transparent_without_status() -> Non
     assert raw_block
     opaque_pixels = sum(1 for px in rgba if ((px >> 24) & 0xFF) > 0)
     assert status in {'degraded_decode', 'failed_decode'} or opaque_pixels > 0
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_problematic_runtime_packs_have_reference_cases() -> None:
+    expected_case_ids = {'m3_0_chunk_03', 'm4_0_chunk_01', 'm11_0_chunk_05', 'm11_1_chunk_06'}
+    case_ids = {case.case_id for case in load_reference_cases(Path('tests/reference_cases/graphics'))}
+    assert expected_case_ids.issubset(case_ids)
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_problematic_runtime_packs_frames_json_contract(tmp_path: Path) -> None:
+    output = tmp_path / 'out'
+    report = decode_graphics(Path('240x320-rus-zombie-infection.jar'), output)
+
+    for pack, chunk in (('m3_0', 3), ('m4_0', 1), ('m11_0', 5), ('m11_1', 6)):
+        assert pack in report['containers']
+        chunk_entry = next(item for item in report['containers'][pack]['chunks'] if item['chunk'] == chunk)
+        frames_json_path = output / chunk_entry['images_metadata']
+        frames_payload = json.loads(frames_json_path.read_text(encoding='utf-8'))
+
+        assert frames_payload['pack'] == pack
+        assert frames_payload['chunk'] == chunk
+        assert isinstance(frames_payload['frames'], list)
+        assert isinstance(frames_payload['payloads'], list)
+        assert len(frames_payload['frames']) > 0
+
+        assert len(frames_payload['frames']) == chunk_entry['decoded_frame_count']
+        frame_indexes = {frame['frame'] for frame in frames_payload['frames']}
+        payload_indexes = {payload['frame_index'] for payload in frames_payload['payloads']}
+        assert frame_indexes.issubset(payload_indexes)
+
+        for frame in frames_payload['frames']:
+            diagnostics = frame['diagnostics']
+            raw_payload = Path(output / frame['raw_payload']).read_bytes()
+            assert diagnostics['raw_payload_size'] == len(raw_payload)
+            if diagnostics['raw_payload_size'] > 0:
+                assert frame['decode_status'] in {'decoded', 'degraded_decode', 'failed_decode'}
+                if frame['decode_status'] != 'failed_decode':
+                    assert diagnostics['alpha']['non_zero'] > 0

@@ -29,6 +29,11 @@ def noisy_text_cases() -> list[tuple[str, bytes, str]]:
             b'row1\r\nrow2\x85row3\x1erow4',
             'row1\nrow2\nrow3\nrow4',
         ),
+        (
+            'rare_control_bytes_kept_stable',
+            b'A\x7fB\x00C\x1dD\x02E',
+            'A\x7fB C D E',
+        ),
     ]
 
 
@@ -65,6 +70,7 @@ def test_noisy_cases_do_not_crash_and_are_deterministic(noisy_text_cases: list[t
 
 @pytest.mark.decode
 @pytest.mark.extractor
+@pytest.mark.smoke
 def test_sanitize_text_is_predictable_for_controls_and_nulls():
     raw = 'A\x00B\x01C\x1fD\tE\nF'
     assert sanitize_text(raw) == 'A B C D\tE\nF'
@@ -101,3 +107,16 @@ def test_partially_broken_offset_table_keeps_segment_count_stable(partially_brok
 
     assert len(segments) == len(reconstructed_segments)
     assert len(segments) > 0
+
+
+@pytest.mark.decode
+@pytest.mark.extractor
+def test_export_strings_with_rare_offsets_preserves_count_and_fallback_symbols() -> None:
+    combined = b'AA\x00BB' + b'CC\x01DD' + b'EE\x85FF' + b'GG\x1fHH'
+    offsets = [5, 10, 15]
+    segments = export_strings(combined, offsets)
+
+    assert len(segments) == 4
+    assert [entry['text'] for entry in segments] == ['AA BB', 'CC DD', 'EE\nFF', 'GG HH']
+    assert all('�' not in entry['text'] for entry in segments)
+    assert '\n'.join(entry['text'] for entry in segments).count('\n') == 4

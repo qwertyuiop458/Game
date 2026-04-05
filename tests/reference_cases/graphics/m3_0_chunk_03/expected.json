@@ -1,0 +1,36 @@
+{
+  "atlas": {
+    "frame_count": 24,
+    "palette_count": 1,
+    "palette_format": 17476,
+    "palette_size": 27,
+    "pixel_format": 22018
+  },
+  "case_id": "m3_0_chunk_03",
+  "description": "Runtime regression reference case for m3_0 chunk 03",
+  "inputs": {
+    "external_sha256": {},
+    "table_sha256": "327004dbe7d2477b3fc52d5a6e1bf3d238a47c7de5423e580dab87cb82c8dec3"
+  },
+  "preview": {
+    "channel_mean": {
+      "a": 143.4375,
+      "b": 138.55,
+      "g": 25.7125,
+      "r": 141.7375
+    },
+    "channel_sum": {
+      "a": 11475,
+      "b": 11084,
+      "g": 2057,
+      "r": 11339
+    },
+    "height": 10,
+    "opaque_pixels": 45,
+    "pixel_count": 80,
+    "png_sha256": "15eee503c420964208be94a338c0df348cab001108ee312b0297782178cc8554",
+    "rgba_sha256": "5f20bda012855050c1978358ecb5cbc924adb2a58f55c9e321723dbfdb78c429",
+    "unique_colors": 11,
+    "width": 8
+  }
+}

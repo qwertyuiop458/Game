@@ -58,16 +58,23 @@ pytest -q tests/test_graphics_decoder.py
 
 Если декодер изменился намеренно и новый результат корректный:
 
-1. Обновите эталоны (только при явном подтверждении):
+1. Сначала посмотрите diff expected vs actual:
+
+```bash
+python3 -m tools.reference_cases --update
+```
+
+Утилита покажет pending-изменения (`frame_count`, `rgba_sha256`) и завершится
+с ошибкой без `--confirm-update`. Это принудительная защита от случайного
+перезаписывания эталонов.
+
+2. Обновите эталоны только при явном подтверждении:
 
 ```bash
 python3 -m tools.reference_cases --update --confirm-update
 ```
 
-Без `--confirm-update` утилита завершится с ошибкой. Это защита от
-случайного переписывания `expected.json`/`preview.png.b64`.
-
-2. Перезапустите проверку:
+3. Перезапустите проверку:
 
 ```bash
 python3 -m tools.reference_cases
@@ -75,14 +82,22 @@ pytest -q tests/test_graphics_reference_cases.py
 pytest -q tests/test_graphics_decoder.py
 ```
 
-3. В PR обязательно укажите:
+4. В PR обязательно укажите:
    - почему изменился декодер,
    - какие кейсы затронуты,
    - какие именно поля в `expected.json` изменились и почему.
 
-4. Если изменялась логика alpha/fallback:
+5. Если изменялась логика alpha/fallback:
    - добавьте/обновите regression-кейс в `tests/reference_cases/graphics/`,
    - убедитесь, что для non-empty raw в тестах не возникает «полностью
      прозрачный кадр» без статуса `degraded_decode`/`failed_decode`.
 
 Это нужно, чтобы изменения reference-данных были осознанными, а не случайными.
+
+## Быстрый smoke-набор (contract + reference regression)
+
+Для короткой проверки ключевых регрессий:
+
+```bash
+pytest -q -m smoke tests/test_smoke_contract_reference.py tests/test_graphics_reference_cases.py
+```

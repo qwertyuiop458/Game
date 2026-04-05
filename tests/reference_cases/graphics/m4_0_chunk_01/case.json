@@ -1,0 +1,8 @@
+{
+  "case_id": "m4_0_chunk_01",
+  "description": "Runtime regression reference case for m4_0 chunk 01",
+  "table_chunk_hex": "table_chunk.hex",
+  "external_chunks": [],
+  "preview_png_base64": "preview.png.b64",
+  "metadata_json": "expected.json"
+}
