@@ -84,6 +84,132 @@ def _keep_valid_refs(project: JarProject, refs: list[dict[str, Any]], dropped_bu
             dropped_bucket.append({'entry': entry, 'error': error})
     return valid_entries
 
+
+def _ref_id(ref: dict[str, Any]) -> str:
+    chunk = ref.get('chunk_index')
+    return f"{ref['container']}#{chunk if chunk is not None else '*'}"
+
+
+def _extract_chapter_from_ref(ref: dict[str, Any], chapter_count: int) -> int | None:
+    container_name = str(ref.get('container', ''))
+    if container_name.startswith('m6_'):
+        tail = container_name.split('_', 1)[1]
+        if tail.isdigit():
+            chapter = int(tail)
+            if 0 <= chapter < chapter_count:
+                return chapter
+    if container_name == 'm9':
+        chunk = ref.get('chunk_index')
+        if isinstance(chunk, int):
+            candidate = chunk - 10
+            if 0 <= candidate < chapter_count:
+                return candidate
+    return None
+
+
+def _detect_conflicts(rows: list[dict[str, Any]], chapter_count: int) -> list[dict[str, Any]]:
+    conflicts: list[dict[str, Any]] = []
+    claims_by_entity: dict[str, list[dict[str, Any]]] = {}
+    graph_edges: dict[int, set[int]] = {}
+    exclusive_kinds = {'map_pack', 'm6_subchunk_semantic', 'm9_script_chunk_semantic'}
+
+    for row in rows:
+        chapter = int(row['chapter'])
+        all_entries = [('direct', entry) for entry in row.get('direct_refs', [])] + [('inferred', entry) for entry in row.get('inferred_refs', [])]
+        direct_entries = row.get('direct_refs', [])
+
+        # duplicate refs in chapter (same kind + target) regardless of source confidence
+        chapter_dupes: dict[tuple[str, str], int] = {}
+        for _source, entry in all_entries:
+            key = (str(entry.get('kind', 'unknown')), _ref_id(entry['ref']))
+            chapter_dupes[key] = chapter_dupes.get(key, 0) + 1
+        for (kind, ref_key), count in sorted(chapter_dupes.items()):
+            if count > 1:
+                conflicts.append(
+                    {
+                        'type': 'cycles_or_duplicates',
+                        'participants': {
+                            'chapter': chapter,
+                            'kind': kind,
+                            'entity': ref_key,
+                            'duplicate_count': count,
+                        },
+                        'explanation': f'Chapter {chapter} contains duplicated {kind} assignment for {ref_key} ({count} occurrences).',
+                    }
+                )
+
+        map_pack_targets = {entry['ref']['container'] for entry in direct_entries if entry.get('kind') == 'map_pack'}
+        semantic_m6_targets = {
+            entry['ref']['container']
+            for entry in direct_entries
+            if entry.get('kind') in ('m6_subchunk_semantic', 'm9_command_m6_semantic')
+        }
+        if map_pack_targets and semantic_m6_targets and map_pack_targets != semantic_m6_targets:
+            conflicts.append(
+                {
+                    'type': 'incompatible_truth_sources',
+                    'participants': {
+                        'chapter': chapter,
+                        'map_pack_targets': sorted(map_pack_targets),
+                        'semantic_targets': sorted(semantic_m6_targets),
+                    },
+                    'explanation': (
+                        f'Chapter {chapter} has map-pack naming targets {sorted(map_pack_targets)} '
+                        f'but semantic script links target {sorted(semantic_m6_targets)}.'
+                    ),
+                }
+            )
+
+        for entry in direct_entries:
+            ref = entry['ref']
+            ref_key = _ref_id(ref)
+            target_chapter = _extract_chapter_from_ref(ref, chapter_count=chapter_count)
+            if target_chapter is not None and target_chapter != chapter:
+                graph_edges.setdefault(chapter, set()).add(target_chapter)
+
+            if entry.get('kind') in exclusive_kinds:
+                claims_by_entity.setdefault(ref_key, []).append(
+                    {
+                        'chapter': chapter,
+                        'kind': entry.get('kind'),
+                        'confidence': entry.get('confidence'),
+                    }
+                )
+
+    # competing assignments: same exclusive entity assigned by multiple chapters
+    for entity, claims in sorted(claims_by_entity.items()):
+        chapters = sorted({int(claim['chapter']) for claim in claims})
+        if len(chapters) > 1:
+            conflicts.append(
+                {
+                    'type': 'competing_assignments',
+                    'participants': {
+                        'entity': entity,
+                        'chapters': chapters,
+                        'claims': claims,
+                    },
+                    'explanation': f'Entity {entity} has competing direct chapter assignments: {chapters}.',
+                }
+            )
+
+    # cycles between chapters inferred from chapter -> chapter semantic edges
+    for src in sorted(graph_edges):
+        for dst in sorted(graph_edges[src]):
+            if src < dst and src in graph_edges.get(dst, set()):
+                conflicts.append(
+                    {
+                        'type': 'cycles_or_duplicates',
+                        'participants': {
+                            'edge_a': [src, dst],
+                            'edge_b': [dst, src],
+                        },
+                        'explanation': f'Cycle detected between chapter {src} and chapter {dst} in semantic cross-links.',
+                    }
+                )
+
+    return conflicts
+
+
 def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     project = JarProject(jar, output)
     project.load()
@@ -229,7 +355,22 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         all_refs.extend([entry['ref'] for entry in direct_candidates])
         all_refs.extend([entry['ref'] for entry in inferred_candidates])
 
-    cross_check = {'total_refs': len(all_refs), 'valid_refs': 0, 'invalid_refs': [], 'dropped_invalid_refs': dropped_invalid_refs}
+    conflicts = _detect_conflicts(rows, chapter_count=chapter_count)
+    conflict_counts: dict[str, int] = {}
+    for conflict in conflicts:
+        conflict_type = str(conflict.get('type', 'unknown'))
+        conflict_counts[conflict_type] = conflict_counts.get(conflict_type, 0) + 1
+
+    cross_check = {
+        'total_refs': len(all_refs),
+        'valid_refs': 0,
+        'invalid_refs': [],
+        'dropped_invalid_refs': dropped_invalid_refs,
+        'conflict_summary': {
+            'total_conflicts': len(conflicts),
+            'by_type': conflict_counts,
+        },
+    }
     for ref in all_refs:
         valid, error = _validate_reference(project, ref)
         if valid:
@@ -237,10 +378,18 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         else:
             cross_check['invalid_refs'].append({'ref': ref, 'error': error})
 
-    matrix = {'chapters': rows, 'cross_check': cross_check}
+    matrix = {'chapters': rows, 'cross_check': cross_check, 'conflicts': conflicts}
     json_path = docs_dir / 'chapter_matrix.json'
+    conflicts_path = docs_dir / 'linker_conflicts.json'
     md_path = docs_dir / 'chapter_matrix.md'
     write_json(json_path, matrix)
+    write_json(
+        conflicts_path,
+        {
+            'conflicts': conflicts,
+            'summary': cross_check['conflict_summary'],
+        },
+    )
 
     headers = [
         'chapter',
@@ -293,6 +442,11 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         )
     lines.append('')
     lines.append(f"Cross-check: {cross_check['valid_refs']}/{cross_check['total_refs']} references are valid and used in the matrix.")
+    lines.append(
+        'Conflict summary: '
+        f"{cross_check['conflict_summary']['total_conflicts']} total "
+        f"({', '.join(f'{k}={v}' for k, v in sorted(cross_check['conflict_summary']['by_type'].items())) or 'none'})."
+    )
     if cross_check['invalid_refs']:
         lines.append('Invalid references:')
         for item in cross_check['invalid_refs']:
