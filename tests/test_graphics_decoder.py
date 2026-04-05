@@ -71,6 +71,35 @@ class TestAtlasChain(unittest.TestCase):
             self.assertGreater(len(atlas.animations), 0)
             self.assertGreater(len(atlas.palettes), 0)
 
+    def test_external_block_mapping_uses_following_chunks(self):
+        # synthetic atlas: one 2x2 frame, palette(ARGB8888, 2 colors), pixel format INDEX_8, sprite size=4
+        header = bytearray()
+        header.extend(b'\x00\x00')  # marker
+        header.extend((0).to_bytes(4, 'little'))  # flags
+        header.extend((1).to_bytes(2, 'little'))  # frame_count
+        header.extend(bytes([0]))  # record_type
+        header.extend((0).to_bytes(2, 'little'))  # x
+        header.extend((0).to_bytes(2, 'little'))  # y
+        header.extend((2).to_bytes(2, 'little'))  # width
+        header.extend((2).to_bytes(2, 'little'))  # height
+        header.extend((0).to_bytes(2, 'little'))  # region_count
+        header.extend((0).to_bytes(2, 'little'))  # animation_count
+        header.extend((0).to_bytes(2, 'little'))  # anchor_count
+        header.extend((PAL_FMT_ARGB8888).to_bytes(2, 'little'))
+        header.extend(bytes([1, 2]))  # palette_count, palette_size
+        header.extend((0xFF000000).to_bytes(4, 'little'))
+        header.extend((0xFFFFFFFF).to_bytes(4, 'little'))
+        header.extend((22018).to_bytes(2, 'little'))  # FMT_INDEX_8
+        header.extend((4).to_bytes(2, 'little'))  # sprite size table entry
+
+        atlas = parse_atlas('synthetic', bytes(header), chunk_index=1, external_chunks=[(2, b'\x00\x01\x01\x00')])
+        decoded = atlas.rgba_for_frame(0, 0)
+        self.assertIsNotNone(decoded)
+        width, height, rgba = decoded
+        self.assertEqual((width, height), (2, 2))
+        self.assertEqual(rgba, [0xFF000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000])
+        self.assertEqual(atlas.sprite_chunk_indices[0], 2)
+
 
 if __name__ == '__main__':
     unittest.main()
