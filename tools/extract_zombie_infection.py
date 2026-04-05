@@ -123,6 +123,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'text': text,
         'audio': audio,
         'audio_stats': audio_stats,
+        'audio_validation_summary': audio.get('midi_validation_summary', {}),
         'maps': maps_bundle['maps'],
         'scripts': maps_bundle['scripts'],
         'map_mismatch_summary': maps_bundle.get('map_mismatch_summary', {}),
