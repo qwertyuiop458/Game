@@ -10,10 +10,25 @@ python3 offline_extractor.py 240x320-rus-zombie-infection.jar
 
 Migration is complete: `offline_extractor.py` is now a thin compatibility wrapper over the modular pipeline in `tools/`.
 
-Equivalent modular entrypoints are available under `tools/`:
+Equivalent modular entrypoints are available under `tools/`.
+
+Supported launch modes for the full extractor (in priority order):
+
+1. **Recommended**: module mode (stable imports in any working directory):
 
 ```bash
 python3 -m tools.extract_zombie_infection 240x320-rus-zombie-infection.jar
+```
+
+2. Compatibility direct run (works from the repository root):
+
+```bash
+python3 tools/extract_zombie_infection.py 240x320-rus-zombie-infection.jar
+```
+
+Other modular entrypoints:
+
+```bash
 python3 -m tools.parse_packs 240x320-rus-zombie-infection.jar
 python3 -m tools.decode_text_t0 240x320-rus-zombie-infection.jar
 python3 -m tools.decode_audio_m13 240x320-rus-zombie-infection.jar
