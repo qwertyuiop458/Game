@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-from tools.common import JarProject, ensure_dir, write_json
+from tools.common import CHAPTER_COUNT, JarProject, detect_m6_chapter_count, ensure_dir, write_json
 from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semantic, resolve_level_trace
 
 
@@ -42,7 +42,7 @@ def _audio_entries(project: JarProject) -> tuple[list[str], list[str]]:
     return midi, raw
 
 
-def _partition_for_chapter(items: list[str], chapter: int, chapter_count: int = 6) -> list[str]:
+def _partition_for_chapter(items: list[str], chapter: int, chapter_count: int = CHAPTER_COUNT) -> list[str]:
     if not items:
         return []
     block = max(1, (len(items) + chapter_count - 1) // chapter_count)
@@ -87,6 +87,7 @@ def _keep_valid_refs(project: JarProject, refs: list[dict[str, Any]], dropped_bu
 def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     project = JarProject(jar, output)
     project.load()
+    chapter_count = detect_m6_chapter_count(project.containers, fallback=CHAPTER_COUNT)
 
     docs_dir = output / 'docs' / 'reverse_engineering'
     ensure_dir(docs_dir)
@@ -106,7 +107,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     all_refs: list[dict[str, Any]] = []
     dropped_invalid_refs: list[dict[str, Any]] = []
 
-    for chapter in range(6):
+    for chapter in range(chapter_count):
         chapter_key = f'chapter_{chapter}'
         row: dict[str, Any] = {
             'chapter': chapter,
@@ -115,8 +116,8 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
             'direct_refs': [],
             'inferred_refs': [],
             'audio_cues': {
-                'midi_ids': _partition_for_chapter(midi_cues, chapter),
-                'raw_ids': _partition_for_chapter(raw_cues, chapter),
+                'midi_ids': _partition_for_chapter(midi_cues, chapter, chapter_count=chapter_count),
+                'raw_ids': _partition_for_chapter(raw_cues, chapter, chapter_count=chapter_count),
             },
             'maps': _map_entries(project, chapter),
             'graphics_sets': graphics_sets,
@@ -127,7 +128,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         }
 
         level_matches = [
-            row for row in m9_tables.get('chunk0_levels', {}).get('levels', []) if row.get('chapter_hint', 0) % 6 == chapter
+            row for row in m9_tables.get('chunk0_levels', {}).get('levels', []) if row.get('chapter_hint', 0) % chapter_count == chapter
         ]
         if not level_matches:
             level_matches = [{'level_index': chapter, 'map_subchunk_hint': 0, 'script_subchunk_hint': chapter}]
