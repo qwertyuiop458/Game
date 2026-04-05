@@ -10,6 +10,43 @@
 | `tools/decode_graphics.py` | **research** | Для исследуемых паков (`m3_0`, `m4_0`, `m11_0`, `m11_1`) строятся preview-артефакты для reverse engineering. | Формат графики декодирован не полностью; возможны неверные палитры, смещения и неполная реконструкция спрайтов/тайлов. | 1) Задокументировать текущие гипотезы по заголовкам/палитрам в отдельных заметках рядом с артефактами.<br>2) Добавить набор «эталонных» бинарных примеров и сравнение ожидаемого/фактического рендера. |
 | `tools/linker.py` | **partial** | Формируются сводные таблицы/матрицы связей ассетов и глав (JSON/MD), пригодные для навигации и аналитики. | Часть связей остаётся inferred (эвристической), а не подтверждённой прямыми ссылками; возможны ложноположительные соответствия. | 1) Разделить confidence-уровни в итоговой матрице (direct / inferred / unknown).<br>2) Добавить cross-check с декодированными скриптами и отчёт о конфликтующих связях. |
 
+## Критерии перехода `partial -> stable`
+
+### `tools/decode_audio_m13.py`
+
+- `summary.json` всегда содержит нормализованные блоки `audio_coverage` и `audio_validation_summary` с фиксированными ключами:
+  - `audio_coverage`: `total_tracks`, `decoded_tracks`, `coverage_percent`;
+  - `audio_validation_summary`: `total`, `valid`, `invalid`, `warnings`.
+- Для этих блоков соблюдаются инварианты контрактов:
+  - `0 <= decoded_tracks <= total_tracks`;
+  - `0.0 <= coverage_percent <= 100.0`;
+  - `valid <= total`, `invalid <= total`, все счётчики неотрицательные.
+- Контрактные тесты на структуру/диапазоны включены в быстрый smoke-набор CI.
+
+### `tools/decode_maps.py`
+
+- `summary.json` всегда содержит `map_mismatch_summary` с фиксированными ключами:
+  `total_maps`, `mismatched_maps`, `mismatch_details`, `maps_validation_passed`, `maps_validation_failed`.
+- Соблюдаются инварианты:
+  - все счётчики неотрицательные;
+  - `mismatched_maps <= total_maps`;
+  - `maps_validation_passed <= total_maps`;
+  - `maps_validation_failed <= total_maps`.
+- Каждая запись в `mismatch_details` соответствует формату:
+  `pack: str`, `chunk: int`, `expected: dict`, `actual: dict`, `severity: str`, `message: str`.
+- Контрактные тесты на инварианты и формат mismatch entries включены в smoke-набор CI.
+
+### `tools/linker.py`
+
+- `summary.json` всегда содержит блоки `chapter_matrix_cross_check` и `linker_conflicts_summary` с фиксированными ключами.
+- Для `chapter_matrix_cross_check` соблюдаются базовые инварианты консистентности:
+  - `0 <= valid_refs <= total_refs`;
+  - `valid_confidence_totals` содержит ключи `direct`, `inferred`, `unknown` с неотрицательными счётчиками;
+  - `conflict_summary.total_conflicts >= 0`, значения `conflict_summary.by_type` неотрицательные.
+- Для `linker_conflicts_summary` соблюдается инвариант:
+  - `0 <= blocking_conflicts <= total_conflicts`, `conflicts` всегда список.
+- Контрактные тесты на эти инварианты запускаются в smoke-наборе CI до тяжёлых интеграционных прогонов.
+
 ## Легенда статусов
 
 - **stable** — модуль регулярно используется в основном пайплайне, результат предсказуем.

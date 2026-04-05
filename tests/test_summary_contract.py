@@ -48,10 +48,11 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         lambda *_args, **_kwargs: {
             'tracks': [],
             'audio_coverage': {
-                'total_tracks': 0,
-                'decoded_tracks': 0,
-                'coverage_percent': 0.0,
+                'total_tracks': 3,
+                'decoded_tracks': 2,
+                'coverage_percent': 66.6,
             },
+            'midi_validation_summary': {'total': 3, 'valid': 2, 'invalid': 1, 'warnings': 0},
         },
     )
     monkeypatch.setattr(
@@ -60,11 +61,18 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
             'maps': {'m1': {}},
             'scripts': {'s1': {}},
             'map_mismatch_summary': {
-                'total_maps': 1,
-                'mismatched_maps': 0,
-                'mismatch_details': [],
+                'total_maps': 2,
+                'mismatched_maps': 1,
+                'mismatch_details': [{
+                    'pack': 'm6_0',
+                    'chunk': 0,
+                    'expected': {'grid_cells': 6},
+                    'actual': {'grid_cells': 5},
+                    'severity': 'error',
+                    'message': 'collision grid cell count mismatch',
+                }],
                 'maps_validation_passed': 1,
-                'maps_validation_failed': 0,
+                'maps_validation_failed': 1,
             },
         },
     )
@@ -82,11 +90,18 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'tools.extract_zombie_infection.build_chapter_matrix',
         lambda *_args, **_kwargs: {
             'chapters': [{'id': 1}, {'id': 2}],
-            'cross_check': {'ok': True},
+            'cross_check': {
+                'total_refs': 5,
+                'valid_refs': 4,
+                'valid_confidence_totals': {'direct': 3, 'inferred': 1, 'unknown': 0},
+                'invalid_refs': [{'ref': {'container': 'm6_0', 'chunk_index': 99}, 'error': 'missing'}],
+                'dropped_invalid_refs': [],
+                'conflict_summary': {'total_conflicts': 1, 'by_type': {'chapter_target_mismatch': 1}},
+            },
             'linker_conflicts_summary': {
-                'total_conflicts': 0,
-                'blocking_conflicts': 0,
-                'conflicts': [],
+                'total_conflicts': 1,
+                'blocking_conflicts': 1,
+                'conflicts': [{'conflict_type': 'chapter_target_mismatch', 'chapters': [0, 1]}],
             },
         },
     )
@@ -153,12 +168,57 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(audio_coverage.get('coverage_percent'), float)
     assert 0.0 <= audio_coverage['coverage_percent'] <= 100.0
 
+    midi_validation_summary = summary['audio_validation_summary']
+    assert set(midi_validation_summary) == {'total', 'valid', 'invalid', 'warnings'}
+    assert all(isinstance(midi_validation_summary[key], int) for key in midi_validation_summary)
+    assert all(midi_validation_summary[key] >= 0 for key in midi_validation_summary)
+    assert midi_validation_summary['valid'] <= midi_validation_summary['total']
+    assert midi_validation_summary['invalid'] <= midi_validation_summary['total']
+
     linker_conflicts_summary = summary['linker_conflicts_summary']
     assert isinstance(linker_conflicts_summary.get('total_conflicts'), int)
     assert linker_conflicts_summary['total_conflicts'] >= 0
     assert isinstance(linker_conflicts_summary.get('blocking_conflicts'), int)
     assert 0 <= linker_conflicts_summary['blocking_conflicts'] <= linker_conflicts_summary['total_conflicts']
     assert isinstance(linker_conflicts_summary.get('conflicts'), list)
+
+    chapter_matrix_cross_check = summary['chapter_matrix_cross_check']
+    assert isinstance(chapter_matrix_cross_check.get('total_refs'), int)
+    assert chapter_matrix_cross_check['total_refs'] >= 0
+    assert isinstance(chapter_matrix_cross_check.get('valid_refs'), int)
+    assert 0 <= chapter_matrix_cross_check['valid_refs'] <= chapter_matrix_cross_check['total_refs']
+    assert isinstance(chapter_matrix_cross_check.get('valid_confidence_totals'), dict)
+    assert set(chapter_matrix_cross_check['valid_confidence_totals']) == {'direct', 'inferred', 'unknown'}
+    for key in ('direct', 'inferred', 'unknown'):
+        value = chapter_matrix_cross_check['valid_confidence_totals'][key]
+        assert isinstance(value, int)
+        assert value >= 0
+    assert isinstance(chapter_matrix_cross_check.get('invalid_refs'), list)
+    assert isinstance(chapter_matrix_cross_check.get('dropped_invalid_refs'), list)
+    assert isinstance(chapter_matrix_cross_check.get('conflict_summary'), dict)
+    assert isinstance(chapter_matrix_cross_check['conflict_summary'].get('total_conflicts'), int)
+    assert chapter_matrix_cross_check['conflict_summary']['total_conflicts'] >= 0
+    assert isinstance(chapter_matrix_cross_check['conflict_summary'].get('by_type'), dict)
+    assert all(
+        isinstance(key, str) and isinstance(value, int) and value >= 0
+        for key, value in chapter_matrix_cross_check['conflict_summary']['by_type'].items()
+    )
+
+    assert map_mismatch_summary['maps_validation_passed'] >= 0
+    assert map_mismatch_summary['maps_validation_failed'] >= 0
+    assert map_mismatch_summary['maps_validation_passed'] <= map_mismatch_summary['total_maps']
+    assert map_mismatch_summary['maps_validation_failed'] <= map_mismatch_summary['total_maps']
+    assert summary['maps_validation_passed'] == map_mismatch_summary['maps_validation_passed']
+    assert summary['maps_validation_failed'] == map_mismatch_summary['maps_validation_failed']
+    for entry in map_mismatch_summary['mismatch_details']:
+        assert isinstance(entry, dict)
+        assert {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'} <= set(entry)
+        assert isinstance(entry['pack'], str)
+        assert isinstance(entry['chunk'], int)
+        assert isinstance(entry['expected'], dict)
+        assert isinstance(entry['actual'], dict)
+        assert isinstance(entry['severity'], str)
+        assert isinstance(entry['message'], str)
 
     for quality in summary['container_quality'].values():
         assert isinstance(quality.get('validation_errors'), list)
