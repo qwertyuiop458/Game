@@ -2,6 +2,12 @@ name: Run J2ME APK + JAR
 
 on:
   workflow_dispatch:
+    inputs:
+      strict_mode:
+        description: "Fail workflow if JAR start cannot be confirmed from emulator signals"
+        type: boolean
+        required: true
+        default: true
   push:
     paths:
       - '.github/workflows/run-apk.yml'
@@ -26,6 +32,8 @@ jobs:
 
       - name: Launch emulator, install APK, run JAR
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          STRICT_MODE: ${{ github.event_name == 'workflow_dispatch' && (inputs.strict_mode && '1' || '0') || '1' }}
         with:
           api-level: 30
           arch: x86_64

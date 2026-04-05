@@ -192,3 +192,11 @@ This first pass implements:
 Локальный скрипт автоматизации: `tools/ci/launch_j2me_in_emulator.sh`.
 
 Запуск в GitHub: **Actions → Run J2ME APK + JAR → Run workflow**.
+
+Workflow поддерживает параметр `strict_mode` (по умолчанию `true`):
+- `true` — job падает, если по `dumpsys/logcat` не удалось подтвердить запуск JAR;
+- `false` — job завершается успешно, но пишет предупреждение в `result.md`.
+
+Итог статуса выполнения пишется в:
+- `.artifacts/emulator/result.env`
+- `.artifacts/emulator/result.md`
