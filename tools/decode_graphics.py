@@ -1,11 +1,68 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from tools.common import JarProject, ensure_dir, write_json, write_rgba_png
 from tools.graphics_decoder import Atlas, parse_atlas
+
+
+@dataclass
+class Palette:
+    index: int
+    fmt: int
+    size: int
+    has_alpha: bool
+
+
+@dataclass
+class ImagePayload:
+    frame_index: int
+    table_chunk: int
+    data_chunk: int | None
+    data_offset: int | None
+    size: int
+    raw_path: str | None = None
+    png_path: str | None = None
+
+
+@dataclass
+class Frame:
+    frame_id: int
+    record_type: int
+    x: int
+    y: int
+    width: int
+    height: int
+    pivot_x: int
+    pivot_y: int
+    palette_index: int
+    image_payload: ImagePayload | None = None
+
+
+@dataclass
+class Region:
+    region_id: int
+    kind: int
+    x: int
+    y: int
+    extra: int
+
+
+@dataclass
+class Sprite:
+    container: str
+    chunk: int
+    runtime_roles: dict[str, str]
+    pixel_format: int
+    palettes: list[Palette]
+    frames: list[Frame]
+    regions: list[Region]
+    payloads: list[ImagePayload]
+    metadata_path: str
+    manifest_path: str
 
 
 def _export_palette_previews(output: Path, atlas: Atlas, pack_name: str) -> list[str]:
@@ -55,39 +112,94 @@ def _export_frame_grid(output: Path, atlas: Atlas, frame_exports: list[dict[str,
     return str(tile_path.relative_to(output))
 
 
-def _build_runtime_manifest(atlas: Atlas, png_paths: dict[int, str]) -> dict[str, Any]:
-    frames = []
+def _build_sprite_model(
+    container: str,
+    chunk_index: int,
+    atlas: Atlas,
+    raw_paths: dict[int, str],
+    png_paths: dict[int, str],
+    metadata_path: str,
+    manifest_path: str,
+) -> Sprite:
+    payloads: list[ImagePayload] = []
+    payload_by_frame: dict[int, ImagePayload] = {}
     for frame in atlas.frames:
-        frames.append({
-            'frame_id': frame.index,
-            'x': frame.x,
-            'y': frame.y,
-            'width': frame.width,
-            'height': frame.height,
-            'pivot': {'x': frame.x, 'y': frame.y},
-            'palette_index': 0,
-            'palette_format': atlas.palette_format,
-            'palette_size': atlas.palette_size,
-            'source_chunk_index': (
-                atlas.sprite_chunk_indices[frame.index]
-                if frame.index < len(atlas.sprite_chunk_indices)
-                else None
-            ),
-            'image': png_paths.get(frame.index),
-        })
+        data_chunk = (
+            atlas.sprite_chunk_indices[frame.index]
+            if frame.index < len(atlas.sprite_chunk_indices)
+            else None
+        )
+        data_offset = (
+            atlas.sprite_chunk_offsets[frame.index]
+            if frame.index < len(atlas.sprite_chunk_offsets)
+            else None
+        )
+        payload = ImagePayload(
+            frame_index=frame.index,
+            table_chunk=chunk_index,
+            data_chunk=data_chunk,
+            data_offset=data_offset,
+            size=atlas.sprite_lengths[frame.index] if frame.index < len(atlas.sprite_lengths) else 0,
+            raw_path=raw_paths.get(frame.index),
+            png_path=png_paths.get(frame.index),
+        )
+        payloads.append(payload)
+        payload_by_frame[frame.index] = payload
 
+    sprite_frames = [
+        Frame(
+            frame_id=frame.index,
+            record_type=frame.record_type,
+            x=frame.x,
+            y=frame.y,
+            width=frame.width,
+            height=frame.height,
+            pivot_x=frame.x,
+            pivot_y=frame.y,
+            palette_index=0,
+            image_payload=payload_by_frame.get(frame.index),
+        )
+        for frame in atlas.frames
+    ]
+    sprite_regions = [
+        Region(region_id=region.index, kind=region.kind, x=region.x, y=region.y, extra=region.extra)
+        for region in atlas.regions
+    ]
+    sprite_palettes = [
+        Palette(
+            index=palette.index,
+            fmt=palette.fmt,
+            size=palette.size,
+            has_alpha=any((color >> 24) != 0xFF for color in palette.colors),
+        )
+        for palette in atlas.palettes
+    ]
+    return Sprite(
+        container=container,
+        chunk=chunk_index,
+        runtime_roles={'atlas_core': 'a.class', 'loader': 'g.class', 'instance': 'c.class'},
+        pixel_format=atlas.pixel_format,
+        palettes=sprite_palettes,
+        frames=sprite_frames,
+        regions=sprite_regions,
+        payloads=payloads,
+        metadata_path=metadata_path,
+        manifest_path=manifest_path,
+    )
+
+
+def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     return {
-        'runtime_roles': {
-            'atlas_core': 'a.class',
-            'loader': 'g.class',
-            'instance': 'c.class',
+        'runtime_roles': sprite.runtime_roles,
+        'format_reconstruction': {
+            'image_payload_blocks': [asdict(payload) for payload in sprite.payloads],
+            'frame_table': [asdict(frame) for frame in sprite.frames],
+            'region_table': [asdict(region) for region in sprite.regions],
+            'palette_table': [asdict(palette) for palette in sprite.palettes],
         },
-        'palette_links': [
-            {'palette_id': palette.index, 'format': palette.fmt, 'size': palette.size}
-            for palette in atlas.palettes
-        ],
-        'frames': frames,
-        'regions': [region.__dict__ for region in atlas.regions],
+        'frames': [asdict(frame) for frame in sprite.frames],
+        'regions': [asdict(region) for region in sprite.regions],
+        'palettes': [asdict(palette) for palette in sprite.palettes],
         'animations': [animation.__dict__ for animation in atlas.animations],
         'anchors': atlas.anchors,
     }
@@ -107,12 +219,17 @@ def decode_graphics(jar: Path, output: Path) -> dict:
     project.load()
 
     sprites_dir = output / 'extracted' / 'sprites'
+    extracted_images_dir = output / 'extracted' / 'images'
     decoded_dir = output / 'images' / 'decoded'
+    extracted_meta_dir = output / 'extracted' / 'meta'
     ensure_dir(sprites_dir)
+    ensure_dir(extracted_images_dir)
     ensure_dir(decoded_dir)
     ensure_dir(output / 'extracted' / 'tiles')
+    ensure_dir(extracted_meta_dir)
 
     result: dict[str, Any] = {'containers': {}, 'images': []}
+    graphics_manifest: dict[str, Any] = {'sprites': []}
     for name in ('m3_0', 'm4_0', 'm7', 'm11_0', 'm11_1'):
         container = project.containers.get(name)
         if not container or not container.payloads:
@@ -140,8 +257,20 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             metadata = atlas.to_metadata()
             exported_frames = []
             png_paths: dict[int, str] = {}
+            raw_paths: dict[int, str] = {}
 
             for frame in atlas.frames:
+                raw_block_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.bin'
+                ensure_dir(raw_block_path.parent)
+                frame_offset = atlas.sprite_data_offsets[frame.index] if frame.index < len(atlas.sprite_data_offsets) else None
+                frame_size = atlas.sprite_lengths[frame.index] if frame.index < len(atlas.sprite_lengths) else 0
+                if frame_offset is not None and frame_size > 0 and frame_offset + frame_size <= len(atlas.sprite_data):
+                    raw_block = atlas.sprite_data[frame_offset:frame_offset + frame_size]
+                else:
+                    raw_block = b''
+                raw_block_path.write_bytes(raw_block)
+                raw_paths[frame.index] = str(raw_block_path.relative_to(output))
+
                 decoded = atlas.rgba_for_frame(frame.index, 0)
                 if decoded is None:
                     continue
@@ -155,6 +284,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     'container': name,
                     'chunk': chunk_index,
                     'frame': frame.index,
+                    'raw_payload': raw_paths[frame.index],
                     'path': rel,
                     'width': width,
                     'height': height,
@@ -169,7 +299,16 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             metadata_path = pack_dir / 'metadata.json'
             write_json(metadata_path, metadata)
 
-            manifest = _build_runtime_manifest(atlas, png_paths)
+            sprite = _build_sprite_model(
+                container=name,
+                chunk_index=chunk_index,
+                atlas=atlas,
+                raw_paths=raw_paths,
+                png_paths=png_paths,
+                metadata_path=str(metadata_path.relative_to(output)),
+                manifest_path=str((pack_dir / 'manifest.json').relative_to(output)),
+            )
+            manifest = _build_runtime_manifest(sprite, atlas)
             manifest_path = pack_dir / 'manifest.json'
             write_json(manifest_path, manifest)
             container_manifest['chunks'].append({
@@ -178,11 +317,30 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 'manifest': str(manifest_path.relative_to(output)),
                 'decoded_frame_count': len(exported_frames),
             })
+            graphics_manifest['sprites'].append(
+                {
+                    'pack': name,
+                    'chunk': chunk_index,
+                    'sprite_manifest': str(manifest_path.relative_to(output)),
+                    'sprite_metadata': str(metadata_path.relative_to(output)),
+                    'frame_links': [
+                        {
+                            'frame': payload.frame_index,
+                            'raw_payload': payload.raw_path,
+                            'png': payload.png_path,
+                            'data_chunk': payload.data_chunk,
+                            'data_offset': payload.data_offset,
+                        }
+                        for payload in sprite.payloads
+                    ],
+                }
+            )
 
         if container_manifest['chunks']:
             result['containers'][name] = container_manifest
 
     write_json(decoded_dir / 'index.json', result)
+    write_json(extracted_meta_dir / 'graphics_manifest.json', graphics_manifest)
     return result
 
 
