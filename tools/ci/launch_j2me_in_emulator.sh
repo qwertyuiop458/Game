@@ -12,6 +12,47 @@ mkdir -p "$ARTIFACT_DIR"
 
 log() { printf '[run-j2me] %s\n' "$*"; }
 
+ADB_BIN=""
+
+write_fallback_log() {
+  local message="$1"
+  local fallback_log="$ARTIFACT_DIR/fallback.log"
+  {
+    echo "[run-j2me] preflight failure"
+    echo "message=$message"
+    echo "hint=Install adb or configure ANDROID_SDK_ROOT/platform-tools"
+    echo "hint=If GitHub/API calls fail, run tools/ci/check_github_connectivity.sh"
+  } >"$fallback_log"
+
+  if [[ -x "tools/ci/check_github_connectivity.sh" ]]; then
+    bash tools/ci/check_github_connectivity.sh >>"$fallback_log" 2>&1 || true
+  fi
+
+  log "Fallback details written to $fallback_log"
+}
+
+bootstrap_adb() {
+  local ensure_script="tools/ci/ensure_adb.sh"
+  if [[ ! -x "$ensure_script" ]]; then
+    write_fallback_log "Missing $ensure_script"
+    return 1
+  fi
+
+  local resolved
+  if resolved="$(bash "$ensure_script" "$ARTIFACT_DIR/adb-bootstrap")"; then
+    ADB_BIN="$resolved"
+    log "Using adb: $ADB_BIN"
+    return 0
+  fi
+
+  write_fallback_log "adb unavailable after bootstrap attempts"
+  return 1
+}
+
+adb() {
+  "$ADB_BIN" "$@"
+}
+
 is_url() {
   [[ "$1" =~ ^https?:// ]]
 }
@@ -197,6 +238,8 @@ assert_outcome() {
   fi
   return 0
 }
+
+bootstrap_adb
 
 APK_PATH="$(prepare_source "$APK_SOURCE" emulator.apk)"
 JAR_PATH="$(prepare_source "$JAR_SOURCE" game.jar)"

@@ -283,3 +283,15 @@ python3 tools/ci/run_apk_via_issue_comment.py \
 ```bash
 bash tools/ci/check_github_connectivity.sh
 ```
+
+### ADB preflight и fallback-логи
+
+Перед запуском `tools/ci/launch_j2me_in_emulator.sh` теперь автоматически выполняется bootstrap `adb` через `tools/ci/ensure_adb.sh`:
+1. проверка `adb` в `PATH`;
+2. поиск в Android SDK путях;
+3. попытка `apt-get install adb`;
+4. попытка скачать `platform-tools`.
+
+Если `adb` недоступен, формируется понятный fallback:
+- `.artifacts/emulator-local/fallback.log` (или соответствующий `ARTIFACT_DIR`)
+- `.artifacts/.../adb-bootstrap/ensure_adb.log`
