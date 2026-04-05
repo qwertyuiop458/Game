@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APK_PATH="${1:-ru.playsoftware.j2meloader-101.apk}"
-JAR_PATH="${2:-240x320-rus-zombie-infection.jar}"
+APK_SOURCE="${1:-ru.playsoftware.j2meloader-101.apk}"
+JAR_SOURCE="${2:-240x320-rus-zombie-infection.jar}"
 ARTIFACT_DIR="${3:-.artifacts/emulator}"
 PACKAGE_NAME="ru.playsoftware.j2meloader"
 JAR_DEVICE_PATH="/sdcard/Download/game.jar"
@@ -12,12 +12,29 @@ mkdir -p "$ARTIFACT_DIR"
 
 log() { printf '[run-j2me] %s\n' "$*"; }
 
-require_file() {
-  local p="$1"
-  if [[ ! -f "$p" ]]; then
-    log "Missing required file: $p"
-    exit 1
+is_url() {
+  [[ "$1" =~ ^https?:// ]]
+}
+
+prepare_source() {
+  local source="$1"
+  local out_name="$2"
+  local out_path="$ARTIFACT_DIR/$out_name"
+
+  if is_url "$source"; then
+    log "Download $source -> $out_path"
+    curl -fL --retry 3 --retry-delay 2 "$source" -o "$out_path"
+    printf '%s' "$out_path"
+    return 0
   fi
+
+  if [[ -f "$source" ]]; then
+    printf '%s' "$source"
+    return 0
+  fi
+
+  log "Missing required file or URL is invalid: $source"
+  exit 1
 }
 
 center_from_bounds() {
@@ -126,6 +143,8 @@ write_result_summary() {
   {
     echo "status=$status"
     echo "reason=$reason"
+    echo "apk_source=$APK_SOURCE"
+    echo "jar_source=$JAR_SOURCE"
     echo "apk_path=$APK_PATH"
     echo "jar_path=$JAR_PATH"
     echo "jar_device_path=$JAR_DEVICE_PATH"
@@ -137,8 +156,10 @@ write_result_summary() {
     echo ""
     echo "- status: **$status**"
     echo "- reason: $reason"
-    echo "- apk: \\`$APK_PATH\\`"
-    echo "- jar: \\`$JAR_PATH\\`"
+    echo "- apk source: \\`$APK_SOURCE\\`"
+    echo "- jar source: \\`$JAR_SOURCE\\`"
+    echo "- apk path: \\`$APK_PATH\\`"
+    echo "- jar path: \\`$JAR_PATH\\`"
     echo "- emulator path: \\`$JAR_DEVICE_PATH\\`"
   } >"$ARTIFACT_DIR/result.md"
 
@@ -177,8 +198,8 @@ assert_outcome() {
   return 0
 }
 
-require_file "$APK_PATH"
-require_file "$JAR_PATH"
+APK_PATH="$(prepare_source "$APK_SOURCE" emulator.apk)"
+JAR_PATH="$(prepare_source "$JAR_SOURCE" game.jar)"
 
 adb start-server
 adb wait-for-device

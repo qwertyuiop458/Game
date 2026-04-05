@@ -3,6 +3,16 @@ name: Run J2ME APK + JAR
 on:
   workflow_dispatch:
     inputs:
+      apk_source:
+        description: "Local path in repo or HTTPS URL to emulator APK"
+        type: string
+        required: true
+        default: "ru.playsoftware.j2meloader-101.apk"
+      jar_source:
+        description: "Local path in repo or HTTPS URL to JAR"
+        type: string
+        required: true
+        default: "240x320-rus-zombie-infection.jar"
       strict_mode:
         description: "Fail workflow if JAR start cannot be confirmed from emulator signals"
         type: boolean
@@ -36,10 +46,23 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
+      - name: Resolve workflow sources
+        id: sources
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "apk_source=${{ inputs.apk_source }}" >> "$GITHUB_OUTPUT"
+            echo "jar_source=${{ inputs.jar_source }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "apk_source=ru.playsoftware.j2meloader-101.apk" >> "$GITHUB_OUTPUT"
+            echo "jar_source=240x320-rus-zombie-infection.jar" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Launch emulator, install APK, run JAR
         uses: reactivecircus/android-emulator-runner@v2
         env:
           STRICT_MODE: ${{ github.event_name == 'workflow_dispatch' && (inputs.strict_mode && '1' || '0') || '1' }}
+          APK_SOURCE: ${{ steps.sources.outputs.apk_source }}
+          JAR_SOURCE: ${{ steps.sources.outputs.jar_source }}
         with:
           api-level: 30
           arch: x86_64
@@ -49,8 +72,8 @@ jobs:
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
             bash tools/ci/launch_j2me_in_emulator.sh \
-              ru.playsoftware.j2meloader-101.apk \
-              240x320-rus-zombie-infection.jar \
+              "$APK_SOURCE" \
+              "$JAR_SOURCE" \
               .artifacts/emulator
 
       - name: Print run status
