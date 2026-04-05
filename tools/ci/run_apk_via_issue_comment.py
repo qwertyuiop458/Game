@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Trigger /run-apk via issue comment, wait for workflow, download artifacts.
 
-This automates the full GitHub UI flow in code:
-1) post `/run-apk` comment to Issue/PR
-2) wait for `run-apk.yml` run triggered by issue_comment
-3) wait for completion
-4) download and unpack `emulator-output` artifact
+Automates the full GitHub UI flow in code:
+1) find existing issue (or create one)
+2) post `/run-apk` comment to Issue/PR
+3) wait for `run-apk.yml` run triggered by issue_comment
+4) wait for completion
+5) download and unpack `emulator-output` artifact
 """
 
 from __future__ import annotations
@@ -50,6 +51,13 @@ def request_json(url: str, token: str, method: str = "GET", body: dict | None = 
         raise RuntimeError(f"HTTP {exc.code} for {url}: {details}") from exc
 
 
+def request_json_list(url: str, token: str) -> list[dict]:
+    data = request_json(url, token)
+    if isinstance(data, list):
+        return data
+    return []
+
+
 def request_bytes(url: str, token: str) -> bytes:
     req = urllib.request.Request(url, method="GET")
     req.add_header("Accept", "application/vnd.github+json")
@@ -58,6 +66,37 @@ def request_bytes(url: str, token: str) -> bytes:
     req.add_header("User-Agent", "run-apk-via-issue-comment-script")
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read()
+
+
+def list_open_issues(repo: str, token: str) -> list[dict]:
+    url = f"{API_BASE}/repos/{repo}/issues?state=open&per_page=100"
+    # GitHub returns both issues and PRs here; exclude PRs.
+    return [it for it in request_json_list(url, token) if "pull_request" not in it]
+
+
+def create_issue(repo: str, token: str, title: str, body: str) -> int:
+    url = f"{API_BASE}/repos/{repo}/issues"
+    payload = request_json(url, token, method="POST", body={"title": title, "body": body})
+    return int(payload["number"])
+
+
+def resolve_issue_number(repo: str, token: str, explicit_issue: int | None, auto_create: bool) -> int:
+    if explicit_issue is not None:
+        return explicit_issue
+
+    open_issues = list_open_issues(repo, token)
+    if open_issues:
+        return int(open_issues[0]["number"])
+
+    if not auto_create:
+        raise RuntimeError("No open issue found. Provide --issue-number or pass --auto-create-issue")
+
+    title = "Automation trigger issue for /run-apk"
+    body = (
+        "Created automatically by tools/ci/run_apk_via_issue_comment.py to host `/run-apk` trigger comments.\n"
+        "Do not delete if automation depends on it."
+    )
+    return create_issue(repo, token, title=title, body=body)
 
 
 def post_trigger_comment(repo: str, issue_number: int, token: str, command: str) -> None:
@@ -122,7 +161,8 @@ def download_artifact(repo: str, run_id: int, artifact_name: str, token: str, ou
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", default=os.getenv("REPO", "qwertyuiop458/Game"))
-    parser.add_argument("--issue-number", type=int, required=True)
+    parser.add_argument("--issue-number", type=int, default=None)
+    parser.add_argument("--auto-create-issue", action="store_true", help="Create a dedicated issue if no open issue exists")
     parser.add_argument("--workflow-file", default="run-apk.yml")
     parser.add_argument("--artifact", default="emulator-output")
     parser.add_argument("--comment", default="/run-apk")
@@ -137,9 +177,11 @@ def main() -> int:
         print("Set GH_TOKEN or GITHUB_TOKEN", file=sys.stderr)
         return 2
 
+    issue_number = resolve_issue_number(args.repo, token, args.issue_number, args.auto_create_issue)
     started = dt.datetime.now(dt.timezone.utc)
-    print(f"[{iso_now()}] Posting trigger comment '{args.comment}' to issue #{args.issue_number}")
-    post_trigger_comment(args.repo, args.issue_number, token, args.comment)
+    print(f"[{iso_now()}] Using issue #{issue_number}")
+    print(f"[{iso_now()}] Posting trigger comment '{args.comment}'")
+    post_trigger_comment(args.repo, issue_number, token, args.comment)
 
     print(f"[{iso_now()}] Waiting for workflow run ({args.workflow_file})...")
     run = find_run(
