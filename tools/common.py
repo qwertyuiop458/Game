@@ -94,6 +94,87 @@ class ChunkInfo:
     crc32: str
 
 
+def validate_container_layout(data: bytes, header_size: int, offsets: list[int]) -> list[str]:
+    errors: list[str] = []
+    total_size = len(data)
+    if header_size > total_size:
+        errors.append(f'header_size {header_size} exceeds data length {total_size}')
+    payload_size = max(0, total_size - header_size)
+    for idx, off in enumerate(offsets):
+        if not (0 <= off <= total_size):
+            errors.append(f'offset[{idx}]={off} out of bounds [0, {total_size}]')
+    for idx in range(len(offsets) - 1):
+        if offsets[idx] > offsets[idx + 1]:
+            errors.append(f'offsets are not monotonic at {idx}->{idx + 1}: {offsets[idx]} > {offsets[idx + 1]}')
+    for idx, start in enumerate(offsets):
+        end = offsets[idx + 1] if idx + 1 < len(offsets) else payload_size
+        size = end - start
+        if size < 0:
+            errors.append(f'chunk[{idx}] has negative size: {size}')
+    return errors
+
+
+def parse_container_u32(data: bytes) -> dict[str, Any]:
+    if not data:
+        return {
+            'header_mode': 'u32',
+            'chunk_count': 0,
+            'header_size': 0,
+            'payload_base': 0,
+            'payload_size': 0,
+            'offsets': [],
+            'valid': True,
+            'validation_errors': [],
+        }
+    chunk_count = data[0]
+    header_size = 1 + chunk_count * 4
+    offsets: list[int] = []
+    if header_size <= len(data):
+        offsets = [u32le(data, 1 + i * 4) for i in range(chunk_count)]
+    else:
+        available = max(0, (len(data) - 1) // 4)
+        offsets = [u32le(data, 1 + i * 4) for i in range(available)]
+    errors = validate_container_layout(data, header_size, offsets)
+    return {
+        'header_mode': 'u32',
+        'chunk_count': chunk_count,
+        'header_size': header_size,
+        'payload_base': header_size,
+        'payload_size': max(0, len(data) - header_size),
+        'offsets': offsets,
+        'valid': len(errors) == 0,
+        'validation_errors': errors,
+    }
+
+
+def parse_container_u8(data: bytes) -> dict[str, Any]:
+    if not data:
+        return {
+            'header_mode': 'u8',
+            'chunk_count': 0,
+            'header_size': 0,
+            'payload_base': 0,
+            'payload_size': 0,
+            'offsets': [],
+            'valid': True,
+            'validation_errors': [],
+        }
+    chunk_count = data[0]
+    header_size = 1 + chunk_count
+    offsets = [data[1 + i] for i in range(min(chunk_count, max(0, len(data) - 1)))]
+    errors = validate_container_layout(data, header_size, offsets)
+    return {
+        'header_mode': 'u8',
+        'chunk_count': chunk_count,
+        'header_size': header_size,
+        'payload_base': header_size,
+        'payload_size': max(0, len(data) - header_size),
+        'offsets': offsets,
+        'valid': len(errors) == 0,
+        'validation_errors': errors,
+    }
+
+
 class Container:
     """Gameloft container format used by m* and t0.
 
@@ -104,16 +185,32 @@ class Container:
     def __init__(self, name: str, data: bytes):
         self.name = name
         self.data = data
-        self.chunk_count = data[0] if data else 0
-        self.header_size = 1 + self.chunk_count * 4
-        self.payload_base = self.header_size
-        self.offsets = [u32le(data, 1 + i * 4) for i in range(self.chunk_count)]
-        self.payload_size = max(0, len(data) - self.payload_base)
+        parsed_u32 = parse_container_u32(data)
+        parsed_u8 = parse_container_u8(data)
+        if parsed_u32['valid'] and not parsed_u8['valid']:
+            parsed = parsed_u32
+        elif parsed_u8['valid'] and not parsed_u32['valid']:
+            parsed = parsed_u8
+        elif parsed_u32['valid'] and parsed_u8['valid']:
+            parsed = parsed_u32
+        elif len(parsed_u32['validation_errors']) <= len(parsed_u8['validation_errors']):
+            parsed = parsed_u32
+        else:
+            parsed = parsed_u8
+
+        self.header_mode = parsed['header_mode']
+        self.chunk_count = parsed['chunk_count']
+        self.header_size = parsed['header_size']
+        self.payload_base = parsed['payload_base']
+        self.offsets = parsed['offsets']
+        self.payload_size = parsed['payload_size']
+        self.valid = parsed['valid']
+        self.validation_errors = parsed['validation_errors']
         self.payloads: list[bytes] = []
         self.relative_ranges: list[tuple[int, int]] = []
         self.absolute_ranges: list[tuple[int, int]] = []
         for index, start in enumerate(self.offsets):
-            end = self.offsets[index + 1] if index + 1 < self.chunk_count else self.payload_size
+            end = self.offsets[index + 1] if index + 1 < len(self.offsets) else self.payload_size
             start = max(0, min(start, self.payload_size))
             end = max(start, min(end, self.payload_size))
             self.relative_ranges.append((start, end))
@@ -137,6 +234,9 @@ class Container:
                 crc32=f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
             ).__dict__)
         return {
+            'header_mode': self.header_mode,
+            'valid': self.valid,
+            'validation_errors': self.validation_errors,
             'chunk_count': self.chunk_count,
             'header_size': self.header_size,
             'payload_size': self.payload_size,
