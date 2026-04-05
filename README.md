@@ -272,3 +272,14 @@ python3 tools/ci/run_apk_via_issue_comment.py \
 - `dumpsys-activities.txt`
 
 Скрипт сам найдёт первый открытый Issue; если его нет — создаст технический Issue (при `--auto-create-issue`).
+
+### Настройка proxy allowlist для GitHub
+
+Для инфраструктурной настройки доступа см.:
+- `docs/network/github_proxy_allowlist.md`
+
+Быстрая диагностика доступности доменов GitHub из текущей среды:
+
+```bash
+bash tools/ci/check_github_connectivity.sh
+```
