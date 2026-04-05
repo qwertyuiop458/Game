@@ -68,6 +68,9 @@ def test_link_conflicts_absent(tmp_path: Path, monkeypatch) -> None:
     matrix = linker.build_chapter_matrix(tmp_path / 'dummy.jar', tmp_path)
     assert matrix['link_conflicts'] == []
     assert matrix['cross_check']['conflict_summary']['total_conflicts'] == 0
+    assert matrix['linker_conflicts_summary'] == {'total_conflicts': 0, 'blocking_conflicts': 0, 'conflicts': []}
+    assert set(matrix['cross_check']['valid_confidence_totals']) == {'direct', 'inferred', 'unknown'}
+    assert all(value >= 0 for value in matrix['cross_check']['valid_confidence_totals'].values())
 
 
 def test_link_conflicts_single(tmp_path: Path, monkeypatch) -> None:

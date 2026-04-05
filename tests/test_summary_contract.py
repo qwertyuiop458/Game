@@ -154,6 +154,13 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(summary['linker_conflicts_summary'], dict)
 
     map_mismatch_summary = summary['map_mismatch_summary']
+    assert set(map_mismatch_summary) == {
+        'total_maps',
+        'mismatched_maps',
+        'mismatch_details',
+        'maps_validation_passed',
+        'maps_validation_failed',
+    }
     assert isinstance(map_mismatch_summary.get('total_maps'), int)
     assert map_mismatch_summary['total_maps'] >= 0
     assert isinstance(map_mismatch_summary.get('mismatched_maps'), int)
@@ -161,6 +168,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(map_mismatch_summary.get('mismatch_details'), list)
 
     audio_coverage = summary['audio_coverage']
+    assert set(audio_coverage) == {'total_tracks', 'decoded_tracks', 'coverage_percent'}
     assert isinstance(audio_coverage.get('total_tracks'), int)
     assert audio_coverage['total_tracks'] >= 0
     assert isinstance(audio_coverage.get('decoded_tracks'), int)
@@ -183,6 +191,14 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(linker_conflicts_summary.get('conflicts'), list)
 
     chapter_matrix_cross_check = summary['chapter_matrix_cross_check']
+    assert set(chapter_matrix_cross_check) == {
+        'total_refs',
+        'valid_refs',
+        'valid_confidence_totals',
+        'invalid_refs',
+        'dropped_invalid_refs',
+        'conflict_summary',
+    }
     assert isinstance(chapter_matrix_cross_check.get('total_refs'), int)
     assert chapter_matrix_cross_check['total_refs'] >= 0
     assert isinstance(chapter_matrix_cross_check.get('valid_refs'), int)
@@ -196,6 +212,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(chapter_matrix_cross_check.get('invalid_refs'), list)
     assert isinstance(chapter_matrix_cross_check.get('dropped_invalid_refs'), list)
     assert isinstance(chapter_matrix_cross_check.get('conflict_summary'), dict)
+    assert set(chapter_matrix_cross_check['conflict_summary']) == {'total_conflicts', 'by_type'}
     assert isinstance(chapter_matrix_cross_check['conflict_summary'].get('total_conflicts'), int)
     assert chapter_matrix_cross_check['conflict_summary']['total_conflicts'] >= 0
     assert isinstance(chapter_matrix_cross_check['conflict_summary'].get('by_type'), dict)
@@ -212,13 +229,16 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert summary['maps_validation_failed'] == map_mismatch_summary['maps_validation_failed']
     for entry in map_mismatch_summary['mismatch_details']:
         assert isinstance(entry, dict)
-        assert {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'} <= set(entry)
+        assert set(entry) == {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'}
         assert isinstance(entry['pack'], str)
         assert isinstance(entry['chunk'], int)
+        assert entry['chunk'] >= 0
         assert isinstance(entry['expected'], dict)
         assert isinstance(entry['actual'], dict)
         assert isinstance(entry['severity'], str)
         assert isinstance(entry['message'], str)
+        assert entry['severity']
+        assert entry['pack'] is not None
 
     for quality in summary['container_quality'].values():
         assert isinstance(quality.get('validation_errors'), list)
