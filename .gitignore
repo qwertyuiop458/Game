@@ -1,4 +1,6 @@
 .artifacts/
 extractor_out/
+extracted/ui/*
+!extracted/ui/.gitkeep
 __pycache__/
 *.pyc
