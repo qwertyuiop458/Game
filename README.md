@@ -295,3 +295,31 @@ bash tools/ci/check_github_connectivity.sh
 Если `adb` недоступен, формируется понятный fallback:
 - `.artifacts/emulator-local/fallback.log` (или соответствующий `ARTIFACT_DIR`)
 - `.artifacts/.../adb-bootstrap/ensure_adb.log`
+
+### Offline vendoring platform-tools (рекомендуется для закрытой сети)
+
+`tools/ci/ensure_adb.sh` теперь в первую очередь ищет оффлайн-вендоринг:
+- `tools/ci/vendor/platform-tools/adb`
+- или `tools/ci/vendor/platform-tools-latest-linux.zip` (распакует автоматически)
+
+Подготовка (на машине с интернетом):
+
+```bash
+curl -L -o platform-tools-latest-linux.zip \
+  https://dl.google.com/android/repository/platform-tools-latest-linux.zip
+```
+
+Вариант A (распакованный):
+```bash
+mkdir -p tools/ci/vendor
+unzip -o platform-tools-latest-linux.zip -d tools/ci/vendor/
+# получим tools/ci/vendor/platform-tools/adb
+```
+
+Вариант B (zip в git):
+```bash
+mkdir -p tools/ci/vendor
+mv platform-tools-latest-linux.zip tools/ci/vendor/platform-tools-latest-linux.zip
+```
+
+После этого `ensure_adb.sh` сможет отработать полностью оффлайн без доступа к сети.

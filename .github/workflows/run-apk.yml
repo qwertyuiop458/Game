@@ -93,6 +93,7 @@ jobs:
           disable-animations: true
           emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: |
+            set +e
             bash tools/ci/launch_j2me_in_emulator.sh \
               "$APK_SOURCE" \
               "$JAR_SOURCE" \

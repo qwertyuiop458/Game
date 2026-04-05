@@ -2,15 +2,48 @@
 set -euo pipefail
 
 # Prints absolute path to adb on success.
-# Tries existing PATH, Android SDK paths, apt install, then platform-tools download.
+# Priority order:
+#   1) vendored platform-tools in repo (offline)
+#   2) existing PATH
+#   3) Android SDK paths
+#   4) apt install
+#   5) download platform-tools
 
 WORK_DIR="${1:-.artifacts/adb-bootstrap}"
 LOG_FILE="$WORK_DIR/ensure_adb.log"
 mkdir -p "$WORK_DIR"
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENDORED_PT_DIR="$SCRIPT_DIR/vendor/platform-tools"
+VENDORED_PT_ZIP="$SCRIPT_DIR/vendor/platform-tools-latest-linux.zip"
+
 log() {
   printf '[ensure-adb] %s\n' "$*" | tee -a "$LOG_FILE" >&2
 }
+
+# === VENDORING (highest-priority, offline) ===
+if [[ -x "$VENDORED_PT_DIR/adb" ]]; then
+  log "Found vendored platform-tools directory: $VENDORED_PT_DIR"
+  printf '%s\n' "$VENDORED_PT_DIR/adb"
+  exit 0
+fi
+
+if [[ -f "$VENDORED_PT_ZIP" ]]; then
+  if command -v unzip >/dev/null 2>&1; then
+    vendored_extract_root="$WORK_DIR/vendor-platform-tools"
+    mkdir -p "$vendored_extract_root"
+    log "Found vendored zip: $VENDORED_PT_ZIP (extracting)"
+    if unzip -o "$VENDORED_PT_ZIP" -d "$vendored_extract_root" >>"$LOG_FILE" 2>&1; then
+      if [[ -x "$vendored_extract_root/platform-tools/adb" ]]; then
+        printf '%s\n' "$vendored_extract_root/platform-tools/adb"
+        exit 0
+      fi
+    fi
+    log "Vendored zip was found, but adb was not produced after extraction"
+  else
+    log "Vendored zip exists but unzip is unavailable"
+  fi
+fi
 
 if command -v adb >/dev/null 2>&1; then
   command -v adb
