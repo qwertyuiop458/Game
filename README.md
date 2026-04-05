@@ -178,3 +178,43 @@ This first pass implements:
 - research decoders for graphics packs `m3_0`, `m4_0`, `m11_0`, `m11_1`;
 - parsers for level / script packs `m8`, `m9`, `m10`;
 - parsers for tile / collision packs `m6_0..m6_5`.
+
+## CI запуск APK + JAR в Android эмуляторе
+
+В репозитории есть workflow `.github/workflows/run-apk.yml`, который на GitHub Actions:
+
+1. поднимает headless Android Emulator (API 30, x86_64);
+2. устанавливает `ru.playsoftware.j2meloader-101.apk` через `adb install`;
+3. копирует `240x320-rus-zombie-infection.jar` в `/sdcard/Download/game.jar`;
+4. запускает J2ME Loader и пытается открыть/запустить JAR;
+5. сохраняет артефакты (`logcat.txt`, screenshot, dumpsys) в `emulator-output`.
+
+Локальный скрипт автоматизации: `tools/ci/launch_j2me_in_emulator.sh`.
+
+Запуск в GitHub: **Actions → Run J2ME APK + JAR → Run workflow**.
+
+Workflow поддерживает параметр `strict_mode` (по умолчанию `true`):
+- `true` — job падает, если по `dumpsys/logcat` не удалось подтвердить запуск JAR;
+- `false` — job завершается успешно, но пишет предупреждение в `result.md`.
+
+Итог статуса выполнения пишется в:
+- `.artifacts/emulator/result.env`
+- `.artifacts/emulator/result.md`
+
+Workflow запускается по `workflow_dispatch`, а также на `push/pull_request` при изменениях CI-скрипта/APK/JAR.
+Скрипт использует несколько стратегий старта (explicit activity, intents, UI taps на EN/RU подписях), чтобы повысить шанс автозапуска JAR в headless-эмуляторе.
+
+Для полностью кодового сценария (`workflow_dispatch`) можно передать источники как URL:
+- `apk_source`: локальный путь в репозитории **или** `https://...apk`
+- `jar_source`: локальный путь в репозитории **или** `https://...jar`
+
+Тогда workflow сам скачает APK/JAR и попытается выполнить весь цикл: установить APK → загрузить JAR → запустить JAR в эмуляторе.
+
+Если нет GitHub CLI-авторизации для `gh workflow run`, обход уже встроен:
+- workflow стартует автоматически на `push/pull_request`;
+- есть nightly `schedule` (03:00 UTC), который тоже выполняет запуск;
+- для schedule можно задать `Repository Variables`: `APK_SOURCE_URL` и `JAR_SOURCE_URL`.
+
+Запуск "в любой момент" без `gh` и без нового commit:
+- оставь комментарий ` /run-apk ` в Issue или PR этого репозитория;
+- workflow `Run J2ME APK + JAR` стартует сразу по `issue_comment` trigger.
