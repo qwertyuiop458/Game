@@ -37,9 +37,29 @@ def test_decode_maps_keeps_pipeline_alive_and_reports_broken_refs(monkeypatch, t
     output_dir = tmp_path / 'out'
     bundle = decode_maps(jar_path, output_dir)
 
-    assert bundle['mismatch_report']['counts']['error'] >= 1
-    mismatch_report = json.loads((output_dir / 'extracted' / 'maps' / 'mismatch_report.json').read_text(encoding='utf-8'))
+    validation = bundle['collision_validation']
+    assert validation['summary']['maps_validation_failed'] >= 1
+    validation_report = json.loads((output_dir / 'extracted' / 'maps' / 'collision_validation.json').read_text(encoding='utf-8'))
     assert any(
-        entry['check_name'] == 'out_of_range_layer_index' and entry['severity'] == 'error'
-        for entry in mismatch_report['entries']
+        entry['severity'] == 'error'
+        and entry['pack'] == 'm6_0'
+        and entry['chunk'] == 99
+        and 'out of bounds' in entry['message'].lower()
+        for entry in validation_report['entries']
     )
+
+
+def test_decode_maps_validation_passes_without_mismatch(tmp_path: Path) -> None:
+    tile_chunk = (1).to_bytes(2, 'little') + (2).to_bytes(2, 'little')
+    collision_chunk = bytes([0, 1])
+
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m6_0', _make_container(tile_chunk, collision_chunk))
+
+    output_dir = tmp_path / 'out'
+    bundle = decode_maps(jar_path, output_dir)
+
+    validation = bundle['collision_validation']
+    assert validation['entries'] == []
+    assert validation['summary'] == {'maps_validation_passed': 1, 'maps_validation_failed': 0}

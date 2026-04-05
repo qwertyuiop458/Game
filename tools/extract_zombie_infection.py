@@ -127,6 +127,8 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'maps': maps_bundle['maps'],
         'scripts': maps_bundle['scripts'],
         'map_mismatch_summary': maps_bundle.get('map_mismatch_summary', {}),
+        'maps_validation_passed': int(maps_bundle.get('map_mismatch_summary', {}).get('maps_validation_passed', 0)),
+        'maps_validation_failed': int(maps_bundle.get('map_mismatch_summary', {}).get('maps_validation_failed', 0)),
         'audio_coverage': audio.get('audio_coverage', {}),
         'graphics': graphics,
         'ui': ui,
