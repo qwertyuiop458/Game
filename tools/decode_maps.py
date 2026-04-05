@@ -114,6 +114,166 @@ def _write_rows_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str
             writer.writerow({name: row.get(name, '') for name in fieldnames})
 
 
+def _add_mismatch(
+    rows: list[dict[str, Any]],
+    *,
+    check_name: str,
+    severity: str,
+    entity_id: str,
+    details: dict[str, Any],
+) -> None:
+    rows.append(
+        {
+            'check_name': check_name,
+            'severity': severity,
+            'entity_id': entity_id,
+            'details': details,
+        }
+    )
+
+
+def _build_map_script_mismatch_report(
+    project: JarProject,
+    map_report: dict[str, Any],
+    scripts: dict[str, Any],
+    chapter_count: int,
+) -> dict[str, Any]:
+    report_rows: list[dict[str, Any]] = []
+
+    for container_name, payload in map_report.items():
+        for item in payload.get('maps', []):
+            width = item.get('width')
+            height = item.get('height')
+            cells = item.get('cells')
+            if all(isinstance(value, int) for value in (width, height, cells)) and width * height != cells:
+                _add_mismatch(
+                    report_rows,
+                    check_name='grid_size_mismatch',
+                    severity='warning',
+                    entity_id=f'{container_name}#{item.get("chunk_index")}',
+                    details={
+                        'layer': 'tile',
+                        'width': width,
+                        'height': height,
+                        'cells': cells,
+                        'expected_cells': width * height,
+                    },
+                )
+
+            tile_cells = item.get('tile_cells')
+            collision_cells = item.get('collision_cells')
+            if isinstance(tile_cells, int) and isinstance(collision_cells, int) and tile_cells != collision_cells:
+                _add_mismatch(
+                    report_rows,
+                    check_name='grid_size_mismatch',
+                    severity='warning',
+                    entity_id=f'{container_name}#{item.get("chunk_index")}',
+                    details={
+                        'layer': 'collision',
+                        'tile_cells': tile_cells,
+                        'collision_cells': collision_cells,
+                    },
+                )
+
+    m6_bounds = {
+        name: len(container.payloads)
+        for name, container in project.containers.items()
+        if re.fullmatch(r'm6_\d+', name)
+    }
+    referenced_layers = (
+        scripts.get('m8', {}).get('chunks', [])
+        + scripts.get('m9', {}).get('chunk10_plus_scripts', [])
+    )
+    for row in referenced_layers:
+        chunk_index = row.get('chunk_index')
+        for layer_name in ('tile_layers', 'collision_layers'):
+            for ref in row.get(layer_name, []):
+                pack = ref.get('pack')
+                subchunk = ref.get('subchunk')
+                if not isinstance(pack, str) or not isinstance(subchunk, int):
+                    _add_mismatch(
+                        report_rows,
+                        check_name='broken_layer_reference',
+                        severity='warning',
+                        entity_id=f'script#{chunk_index}',
+                        details={'layer_kind': layer_name, 'reference': ref},
+                    )
+                    continue
+                bound = m6_bounds.get(pack)
+                if bound is None or not (0 <= subchunk < bound):
+                    _add_mismatch(
+                        report_rows,
+                        check_name='out_of_range_layer_index',
+                        severity='error',
+                        entity_id=f'{pack}#{subchunk}',
+                        details={
+                            'source_script_chunk': chunk_index,
+                            'layer_kind': layer_name,
+                            'max_valid_index': (bound - 1) if isinstance(bound, int) else None,
+                        },
+                    )
+
+    m8_chunks = scripts.get('m8', {}).get('chunks', [])
+    m8_count = len(m8_chunks)
+    semantic_levels = scripts.get('m9', {}).get('semantic_levels', {}).get('levels', [])
+    m9_links_to_m8 = 0
+    for level_entry in semantic_levels:
+        level_path = project.output / level_entry.get('path', '')
+        if not level_path.exists():
+            continue
+        level_payload = json.loads(level_path.read_text(encoding='utf-8'))
+        links = [item for item in level_payload.get('command_links', []) if item.get('target') == 'm8']
+        m9_links_to_m8 += len(links)
+        for link in links:
+            subchunk_index = link.get('subchunk_index')
+            if not isinstance(subchunk_index, int) or not (0 <= subchunk_index < m8_count):
+                _add_mismatch(
+                    report_rows,
+                    check_name='broken_m9_to_m8_link',
+                    severity='error',
+                    entity_id=f'm8#{subchunk_index}',
+                    details={
+                        'source_level': level_payload.get('level_index'),
+                        'source_script_chunk': level_payload.get('trace', {}).get('script_chunk'),
+                        'm8_chunk_count': m8_count,
+                    },
+                )
+    if m9_links_to_m8 > 0 and m8_count == 0:
+        _add_mismatch(
+            report_rows,
+            check_name='empty_m8_container_with_links',
+            severity='error',
+            entity_id='m8',
+            details={'m9_link_count': m9_links_to_m8},
+        )
+
+    m10_chunks = scripts.get('m10', {}).get('chapter_chunks', [])
+    if m10_chunks and len(m10_chunks) < chapter_count:
+        _add_mismatch(
+            report_rows,
+            check_name='m10_chapter_coverage',
+            severity='warning',
+            entity_id='m10',
+            details={'chapter_count': chapter_count, 'm10_chunk_count': len(m10_chunks)},
+        )
+
+    by_severity = {
+        'info': 0,
+        'warning': 0,
+        'error': 0,
+    }
+    for row in report_rows:
+        severity = row.get('severity')
+        if severity in by_severity:
+            by_severity[severity] += 1
+
+    return {
+        'total': len(report_rows),
+        'counts': by_severity,
+        'entries': report_rows,
+    }
+
+
 def build_final_table(project: JarProject, output: Path, maps_report: dict, script_report: dict, audio_report: dict, text_report: dict) -> list[dict[str, Any]]:
     chapter_count = detect_m6_chapter_count(project.containers, fallback=CHAPTER_COUNT)
     map_counts = {name: maps_report.get(name, {}).get('map_count', 0) for name in maps_report}
@@ -705,8 +865,15 @@ def decode_maps(jar: Path, output: Path) -> dict:
             'm10': scripts.get('m10', {}),
         },
     })
+    mismatch_report = _build_map_script_mismatch_report(project, report, scripts, chapter_count)
+    write_json(maps_dir / 'mismatch_report.json', mismatch_report)
     write_json(output / 'docs' / 'reverse_engineering' / 'scripts_index.json', scripts)
-    return {'maps': report, 'scripts': scripts}
+    return {
+        'maps': report,
+        'scripts': scripts,
+        'mismatch_report': mismatch_report,
+        'mismatch_report_path': str((maps_dir / 'mismatch_report.json').relative_to(output)),
+    }
 
 
 def main() -> None:
