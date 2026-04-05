@@ -157,3 +157,99 @@ def test_smoke_frames_json_contract_for_deterministic_decode_statuses(
     payload_by_frame_01 = {entry['frame_index']: entry for entry in frames_01['payloads']}
     assert payload_by_frame_01[0]['decode_status'] == 'skipped'
     assert payload_by_frame_01[0]['skipped_reason'] == 'unsupported_pixel_format'
+
+
+@pytest.mark.smoke
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_non_empty_raw_transparent_decode_is_accounted_as_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    atlas = Atlas(
+        name='m11_1',
+        chunk_index=0,
+        flags=0,
+        frames=[Frame(index=0, record_type=0, x=0, y=0, width=1, height=1)],
+        regions=[Region(index=0, kind=0, x=0, y=0, extra=0)],
+        animations=[Animation(index=0, kind=0, offset=0)],
+        anchors=[],
+        extra_quads=[],
+        palettes=[Palette(index=0, fmt=17476, size=2, colors=[0x00000000, 0xFFFFFFFF])],
+        palette_format=17476,
+        palette_size=2,
+        pixel_format=22018,
+        sprite_data_offsets=[0],
+        sprite_chunk_indices=[0],
+        sprite_chunk_offsets=[0],
+        sprite_lengths=[1],
+        sprite_data=b'\xAB',
+        has_alpha=True,
+    )
+
+    class FakeJarProject:
+        def __init__(self, _jar: Path, _output: Path) -> None:
+            self.containers: dict[str, SimpleNamespace] = {}
+
+        def load(self) -> None:
+            self.containers = {'m11_1': SimpleNamespace(payloads=[b'\x00'])}
+
+    def fake_parse_atlas(_name: str, _payload: bytes, *, chunk_index: int, external_chunks: list[tuple[int, bytes]]) -> Atlas:
+        assert chunk_index == 0
+        assert external_chunks == []
+        return atlas
+
+    def fake_render_with_diagnostics(
+        _atlas: Atlas,
+        frame_index: int,
+        raw_block: bytes,
+    ) -> tuple[int, int, list[int], str, dict[str, object]]:
+        assert frame_index == 0
+        assert raw_block == b'\xAB'
+        return (
+            1,
+            1,
+            [0x00000000],
+            'degraded_decode',
+            {
+                'raw_payload_size': 1,
+                'codec_path': 'INDEX_8',
+                'alpha': {'min': 0, 'max': 0, 'non_zero': 0},
+                'fallback_reason': 'raw_non_empty_alpha_unusable',
+            },
+        )
+
+    monkeypatch.setattr('tools.decode_graphics.JarProject', FakeJarProject)
+    monkeypatch.setattr('tools.decode_graphics.parse_atlas', fake_parse_atlas)
+    monkeypatch.setattr('tools.decode_graphics._render_frame_with_diagnostics', fake_render_with_diagnostics)
+    monkeypatch.setattr('tools.decode_graphics.verify_reference_cases', lambda: [])
+
+    out_dir = tmp_path / 'out'
+    result = decode_graphics(tmp_path / 'fake.jar', out_dir)
+
+    frames_payload = json.loads((out_dir / 'extracted' / 'images' / 'm11_1' / 'chunk_00' / 'frames.json').read_text(encoding='utf-8'))
+    metadata_payload = json.loads((out_dir / 'extracted' / 'sprites' / 'm11_1' / 'chunk_00' / 'metadata.json').read_text(encoding='utf-8'))
+
+    assert len(frames_payload['frames']) == 1
+    assert frames_payload['frames'][0]['decode_status'] == 'degraded_decode'
+    assert frames_payload['skipped_frames'] == []
+
+    assert len(frames_payload['payloads']) == 1
+    assert frames_payload['payloads'][0]['frame_index'] == 0
+    assert frames_payload['payloads'][0]['decode_status'] == 'degraded_decode'
+    assert frames_payload['payloads'][0]['skipped_reason'] is None
+
+    exported_count = len(frames_payload['frames'])
+    skipped_count = len(frames_payload['skipped_frames'])
+    assert exported_count + skipped_count == metadata_payload['frame_count']
+
+    quality_gate = result['graphics_quality_gate']
+    assert quality_gate['total_frames'] == 1
+    assert quality_gate['decoded_frames'] == 0
+    assert quality_gate['degraded_frames'] == 1
+    assert quality_gate['failed_frames'] == 0
+    assert quality_gate['skipped_frames'] == 0
+    assert quality_gate['non_empty_raw_frames'] == 1
+    assert quality_gate['non_empty_raw_with_alpha_nonzero'] == 0
+    assert quality_gate['gate_passed'] is True
+    assert quality_gate['gate_reasons'] == []
