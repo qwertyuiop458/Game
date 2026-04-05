@@ -61,6 +61,7 @@ By default, the extractor writes to `.artifacts/extractor_out/`, which is gitign
 ## GitHub guide
 
 - Подробное объяснение экстрактора на русском для чтения прямо в GitHub: [`docs/github_explanations_ru.md`](docs/github_explanations_ru.md)
+- Текущий roadmap по статусу декодеров и ближайшим шагам: [`docs/roadmap_ru.md`](docs/roadmap_ru.md)
 - В начале документа явно указано, что `offline_extractor.py` — тонкий backward-compatible wrapper, а реальная точка входа пайплайна/CLI — `tools/extract_zombie_infection.py`.
 - Документ оформлен как интерактивная навигация по архитектуре, функциям и выходным артефактам, чтобы код было легче читать через GitHub UI.
 
