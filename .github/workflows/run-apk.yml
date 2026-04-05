@@ -75,6 +75,10 @@ jobs:
             echo "strict_mode=1" >> "$GITHUB_OUTPUT"
           fi
 
+
+      - name: Prepare artifact directory
+        run: mkdir -p .artifacts/emulator
+
       - name: Launch emulator, install APK, run JAR
         uses: reactivecircus/android-emulator-runner@v2
         env:
@@ -93,6 +97,25 @@ jobs:
               "$APK_SOURCE" \
               "$JAR_SOURCE" \
               .artifacts/emulator
+            rc=$?
+            mkdir -p .artifacts/emulator
+            if [ ! -f .artifacts/emulator/result.env ]; then
+              {
+                echo "status=failed"
+                echo "reason=launch step failed before result.env was generated"
+                echo "exit_code=${rc}"
+              } > .artifacts/emulator/result.env
+            fi
+            if [ ! -f .artifacts/emulator/result.md ]; then
+              {
+                echo "# J2ME CI run"
+                echo ""
+                echo "- status: **failed**"
+                echo "- reason: launch step failed before result.md was generated"
+                echo "- exit code: ${rc}"
+              } > .artifacts/emulator/result.md
+            fi
+            exit "$rc"
 
       - name: Print run status
         if: always()
@@ -106,7 +129,7 @@ jobs:
 
       - name: Upload emulator artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: emulator-output
           path: .artifacts/emulator

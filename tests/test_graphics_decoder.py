@@ -1,8 +1,8 @@
 import unittest
+import json
 from types import SimpleNamespace
 from hashlib import sha256
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from tools.common import JarProject, u16le
