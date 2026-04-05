@@ -1,23 +1,32 @@
-import unittest
+from __future__ import annotations
 
-class TestDecodeText(unittest.TestCase):
+from pathlib import Path
 
-    def test_valid_encoded_text(self):
-        # Example: Assuming the decode_text function exists.
-        decoded = decode_text('encoded_string_here')  # Replace with actual data
-        self.assertEqual(decoded, 'expected_decoded_string')  # Replace with expected output
+from tools.decode_text_t0 import decode_text, decode_text_chunk
 
-    def test_empty_string(self):
-        decoded = decode_text('')
-        self.assertEqual(decoded, '')
 
-    def test_invalid_encoded_text(self):
-        with self.assertRaises(ValueError):
-            decode_text('invalid_encoded_string')  # Expecting a ValueError for invalid input
+def test_decode_text_chunk_with_utf8_fixture(t0_payload: bytes) -> None:
+    decoded = decode_text_chunk(t0_payload)
 
-    def test_edge_cases(self):
-        decoded = decode_text('edge_case_string')  # Replace with actual data
-        self.assertEqual(decoded, 'expected_edge_case_output')  # Replace with expected output
+    assert decoded['encoding_used'] == 'utf-8', 'decode_text_chunk() should prefer UTF-8 for valid UTF-8 bytes.'
+    assert decoded['text'] == 'Привет', 'Decoded text should match the fixture payload.'
+    assert decoded['decode_quality']['replacement_count'] == 0, 'Valid UTF-8 input should decode without replacement characters.'
 
-if __name__ == '__main__':
-    unittest.main()
+
+def test_decode_text_chunk_empty_input() -> None:
+    decoded = decode_text_chunk(b'')
+
+    assert decoded['text'] == '', 'Empty byte input should decode to an empty string.'
+    assert decoded['decode_quality']['replacement_count'] == 0, 'Empty input should not produce replacement characters.'
+
+
+def test_decode_text_reads_t0_from_same_jar_fixture(tmp_path: Path, jar_with_t0: Path) -> None:
+    output = tmp_path / 'decode_out'
+    result = decode_text(jar_with_t0, output)
+
+    assert 'chunks' in result, 'decode_text() should return a mapping with the "chunks" key.'
+    assert len(result['chunks']) == 1, 'Fixture JAR includes one t0 chunk, so decode_text() should return one chunk entry.'
+
+    text_path = output / result['chunks'][0]['path']
+    assert text_path.exists(), 'decode_text() must write decoded text file referenced by result["chunks"][0]["path"].'
+    assert text_path.read_text(encoding='utf-8') == 'Привет', 'Decoded output text should match the fixture content.'
