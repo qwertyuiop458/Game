@@ -7,6 +7,8 @@ from typing import Any
 from tools.common import CHAPTER_COUNT, JarProject, detect_m6_chapter_count, ensure_dir, write_json
 from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semantic, resolve_level_trace
 
+CONFIDENCE_VALUES = ('direct', 'inferred', 'unknown')
+
 
 def _map_entries(project: JarProject, chapter: int) -> list[dict[str, Any]]:
     container_name = f'm6_{chapter}'
@@ -84,6 +86,21 @@ def _keep_valid_refs(project: JarProject, refs: list[dict[str, Any]], dropped_bu
             dropped_bucket.append({'entry': entry, 'error': error})
     return valid_entries
 
+
+def _classify_confidence(link_origin: str) -> str:
+    """
+    Confidence rules:
+    - direct: confirmed structural/script relations (pack naming, m9 table traces, semantic command links)
+    - inferred: heuristic chapter partitioning or global resource reuse patterns
+    - unknown: no direct/heuristic confirmation available
+    """
+    if link_origin in ('structure', 'script'):
+        return 'direct'
+    if link_origin == 'heuristic':
+        return 'inferred'
+    return 'unknown'
+
+
 def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     project = JarProject(jar, output)
     project.load()
@@ -105,6 +122,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
 
     rows: list[dict[str, Any]] = []
     all_refs: list[dict[str, Any]] = []
+    all_candidate_entries: list[dict[str, Any]] = []
     dropped_invalid_refs: list[dict[str, Any]] = []
 
     for chapter in range(chapter_count):
@@ -130,6 +148,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         level_matches = [
             row for row in m9_tables.get('chunk0_levels', {}).get('levels', []) if row.get('chapter_hint', 0) % chapter_count == chapter
         ]
+        has_confirmed_level_matches = bool(level_matches)
         if not level_matches:
             level_matches = [{'level_index': chapter, 'map_subchunk_hint': 0, 'script_subchunk_hint': chapter}]
         resolved_traces = [resolve_level_trace(int(item.get('level_index', chapter)), m9_tables) for item in level_matches]
@@ -140,7 +159,12 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
 
         # Primary links from semantic script/map relations.
         direct_candidates = [
-            {'kind': 'map_pack', 'ref': _build_reference(f'm6_{chapter}'), 'confidence': 1.0, 'reason': 'chapter pack naming m6_<chapter>'},
+            {
+                'kind': 'map_pack',
+                'ref': _build_reference(f'm6_{chapter}'),
+                'confidence': _classify_confidence('structure'),
+                'reason': 'chapter pack naming m6_<chapter>',
+            },
         ]
         for level_entry in level_matches:
             level_index = int(level_entry.get('level_index', chapter))
@@ -149,7 +173,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 {
                     'kind': 'm9_script_chunk_semantic',
                     'ref': _build_reference('m9', trace.script_chunk),
-                    'confidence': 0.98,
+                    'confidence': _classify_confidence('script'),
                     'reason': f'level {level_index} resolved by m9 chunk0 + 10+level/subchunk rule',
                 }
             )
@@ -157,7 +181,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 {
                     'kind': 'm6_subchunk_semantic',
                     'ref': _build_reference(f'm6_{trace.chapter}', trace.map_subchunk),
-                    'confidence': 0.9,
+                    'confidence': _classify_confidence('script'),
                     'reason': f'level {level_index} map_subchunk_hint from m9 chunk0',
                 }
             )
@@ -169,7 +193,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                             {
                                 'kind': 'm9_command_m8_semantic',
                                 'ref': _build_reference('m8', int(link['subchunk_index'])),
-                                'confidence': 0.9,
+                                'confidence': _classify_confidence('script'),
                                 'reason': f"m9#{trace.script_chunk:02d} opcode {item['opcode']} offset 0x{item['offset']:x}",
                                 'source': {'level_index': level_index, 'm9_chunk': trace.script_chunk, 'offset': item['offset']},
                             }
@@ -179,7 +203,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                             {
                                 'kind': 'm9_command_m6_semantic',
                                 'ref': _build_reference(str(link['pack']), int(link['subchunk'])),
-                                'confidence': 0.82,
+                                'confidence': _classify_confidence('script'),
                                 'reason': f"m9#{trace.script_chunk:02d} opcode {item['opcode']} offset 0x{item['offset']:x}",
                                 'source': {'level_index': level_index, 'm9_chunk': trace.script_chunk, 'offset': item['offset']},
                             }
@@ -191,7 +215,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 {
                     'kind': 'graphics_pack',
                     'ref': _build_reference(g),
-                    'confidence': 0.72,
+                    'confidence': _classify_confidence('heuristic'),
                     'reason': 'global graphics pack reused across chapters',
                 }
             )
@@ -201,7 +225,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 {
                     'kind': 'audio_midi',
                     'ref': _build_reference(container_name, int(chunk_str)),
-                    'confidence': 0.58,
+                    'confidence': _classify_confidence('heuristic'),
                     'reason': 'chapter-wise even partition of discovered MIDI cues',
                     'cue_id': cue,
                 }
@@ -212,9 +236,19 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 {
                     'kind': 'audio_raw',
                     'ref': _build_reference(container_name, int(chunk_str)),
-                    'confidence': 0.53,
+                    'confidence': _classify_confidence('heuristic'),
                     'reason': 'chapter-wise even partition of raw cue chunks',
                     'cue_id': cue,
+                }
+            )
+
+        if not has_confirmed_level_matches:
+            direct_candidates.append(
+                {
+                    'kind': 'script_trace_unconfirmed',
+                    'ref': _build_reference('m9', 10 + chapter if m9_container else None),
+                    'confidence': _classify_confidence('unconfirmed'),
+                    'reason': 'fallback level trace used without chapter-specific evidence',
                 }
             )
 
@@ -226,16 +260,34 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         }
 
         rows.append(row)
+        all_candidate_entries.extend(direct_candidates)
+        all_candidate_entries.extend(inferred_candidates)
         all_refs.extend([entry['ref'] for entry in direct_candidates])
         all_refs.extend([entry['ref'] for entry in inferred_candidates])
 
-    cross_check = {'total_refs': len(all_refs), 'valid_refs': 0, 'invalid_refs': [], 'dropped_invalid_refs': dropped_invalid_refs}
-    for ref in all_refs:
+    cross_check = {
+        'total_refs': len(all_refs),
+        'valid_refs': 0,
+        'invalid_refs': [],
+        'dropped_invalid_refs': dropped_invalid_refs,
+        'confidence_totals': {value: 0 for value in CONFIDENCE_VALUES},
+        'valid_confidence_totals': {value: 0 for value in CONFIDENCE_VALUES},
+    }
+    for entry in all_candidate_entries:
+        confidence = entry.get('confidence', 'unknown')
+        if confidence not in CONFIDENCE_VALUES:
+            confidence = 'unknown'
+        cross_check['confidence_totals'][confidence] += 1
+    for ref, entry in zip(all_refs, all_candidate_entries):
         valid, error = _validate_reference(project, ref)
         if valid:
             cross_check['valid_refs'] += 1
+            confidence = entry.get('confidence', 'unknown')
+            if confidence not in CONFIDENCE_VALUES:
+                confidence = 'unknown'
+            cross_check['valid_confidence_totals'][confidence] += 1
         else:
-            cross_check['invalid_refs'].append({'ref': ref, 'error': error})
+            cross_check['invalid_refs'].append({'ref': ref, 'error': error, 'confidence': entry.get('confidence', 'unknown')})
 
     matrix = {'chapters': rows, 'cross_check': cross_check}
     json_path = docs_dir / 'chapter_matrix.json'
@@ -265,11 +317,13 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
                 scripts_flat.append(value)
         scripts_col = ', '.join(scripts_flat) or '-'
         direct_col = '<br>'.join(
-            f"{entry['kind']} → {entry['ref']['container']}#{entry['ref']['chunk_index'] if entry['ref']['chunk_index'] is not None else '*'} (c={entry['confidence']:.2f})"
+            f"{entry['kind']} → {entry['ref']['container']}#{entry['ref']['chunk_index'] if entry['ref']['chunk_index'] is not None else '*'} "
+            f"(confidence={entry.get('confidence', 'unknown')})"
             for entry in row['direct_refs']
         )
         inferred_col = '<br>'.join(
-            f"{entry['kind']} → {entry['ref']['container']}#{entry['ref']['chunk_index'] if entry['ref']['chunk_index'] is not None else '*'} (c={entry['confidence']:.2f})"
+            f"{entry['kind']} → {entry['ref']['container']}#{entry['ref']['chunk_index'] if entry['ref']['chunk_index'] is not None else '*'} "
+            f"(confidence={entry.get('confidence', 'unknown')})"
             for entry in row['inferred_refs']
         )
         audio_col = (
@@ -293,6 +347,14 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         )
     lines.append('')
     lines.append(f"Cross-check: {cross_check['valid_refs']}/{cross_check['total_refs']} references are valid and used in the matrix.")
+    lines.append(
+        'Confidence totals: ' +
+        ', '.join(f"{key}={cross_check['confidence_totals'][key]}" for key in CONFIDENCE_VALUES)
+    )
+    lines.append(
+        'Valid confidence totals: ' +
+        ', '.join(f"{key}={cross_check['valid_confidence_totals'][key]}" for key in CONFIDENCE_VALUES)
+    )
     if cross_check['invalid_refs']:
         lines.append('Invalid references:')
         for item in cross_check['invalid_refs']:
