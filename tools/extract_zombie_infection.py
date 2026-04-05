@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
+
+if __package__ in {None, ''}:
+    # Allow direct script run: `python tools/extract_zombie_infection.py ...`
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.common import JarProject, ensure_dir, write_json
 from tools.decode_audio_m13 import decode_audio
