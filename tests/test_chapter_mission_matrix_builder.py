@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tools.decode_maps import build_chapter_mission_matrix, build_final_table
+from tests.fixtures_mission_semantics import EXPECTED_MISSION_ROWS
 
 
 class _ProjectStub:
@@ -186,3 +187,40 @@ def test_graphics_chunk_links_are_not_identical_between_chapters_by_default(tmp_
     assert chapter0_graphics
     assert chapter1_graphics
     assert chapter0_graphics != chapter1_graphics
+
+
+def test_chapter_mission_matrix_uses_known_mission_fixture_rows(tmp_path: Path) -> None:
+    output = tmp_path
+    text_dir = output / 'extracted' / 'text'
+    text_dir.mkdir(parents=True)
+    for idx in range(6):
+        (text_dir / f't0_{idx:02d}_full.txt').write_text(
+            f'chapter {idx} zombie laboratory final fight',
+            encoding='utf-8',
+        )
+
+    maps_report = {f'm6_{idx}': {'map_count': 1} for idx in range(6)}
+    script_report = {'m9': {'chapter_mission_links': {'mission_links': EXPECTED_MISSION_ROWS}}}
+    graphics_report = {'containers': {'m3_0': {'chunks': [{'chunk': 0}]}, 'm4_0': {'chunks': [{'chunk': 0}]}}}
+    audio_report = {'midi': [], 'raw_audio': []}
+    text_report = {
+        'chunks': [
+            {'chunk_index': idx, 'path': f'extracted/text/t0_{idx:02d}_full.txt'}
+            for idx in range(6)
+        ]
+    }
+
+    rows = build_chapter_mission_matrix(
+        _ProjectStub(),
+        output,
+        maps_report,
+        script_report,
+        graphics_report,
+        audio_report,
+        text_report,
+    )
+
+    chapter_to_mission = {row['chapter']: row['mission'] for row in rows}
+    assert chapter_to_mission[2] == '#0'
+    assert chapter_to_mission[4] == '#1'
+    assert chapter_to_mission[1] == '#2'
