@@ -16,8 +16,9 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
         chunk_index=0,
         flags=0,
         frames=[
-            Frame(index=0, record_type=0xFE, x=0, y=0, width=1, height=1, direct_color=0xFF00FF00),
+            Frame(index=0, record_type=0, x=0, y=0, width=1, height=1),
             Frame(index=1, record_type=0, x=0, y=0, width=1, height=1),
+            Frame(index=2, record_type=0, x=0, y=0, width=1, height=1),
         ],
         regions=[Region(index=0, kind=0, x=0, y=0, extra=0)],
         animations=[Animation(index=0, kind=0, offset=0)],
@@ -27,11 +28,11 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
         palette_format=17476,
         palette_size=2,
         pixel_format=22018,
-        sprite_data_offsets=[0, 0],
-        sprite_chunk_indices=[0, -1],
-        sprite_chunk_offsets=[0, 0],
-        sprite_lengths=[0, 1],
-        sprite_data=b'',
+        sprite_data_offsets=[1, 3, 4],
+        sprite_chunk_indices=[0, 0, -1],
+        sprite_chunk_offsets=[7, 8, 9],
+        sprite_lengths=[2, 1, 1],
+        sprite_data=b'\x00\xAA\xBB\xCC\xDD',
         has_alpha=False,
     )
 
@@ -56,16 +57,34 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
     manifest_json = json.loads(manifest)
     frames_json = json.loads(frames)
 
-    assert metadata_json['frame_count'] == 2
-    assert manifest_json['frame_count'] == 2
-    assert len(manifest_json['frames']) == 0
-    assert len(frames_json['frames']) == 0
+    assert metadata_json['frame_count'] == 3
+    assert manifest_json['frame_count'] == 3
+    assert len(manifest_json['frames']) == 2
+    assert len(frames_json['frames']) == 2
     assert len(frames_json['frames']) + len(frames_json['skipped_frames']) == metadata_json['frame_count']
 
-    skipped_payload = next(payload for payload in frames_json['payloads'] if payload['frame_index'] == 1)
+    payloads_by_frame = {payload['frame_index']: payload for payload in frames_json['payloads']}
+    exported_by_frame = {item['frame']: item for item in frames_json['frames']}
+    skipped_by_frame = {item['frame']: item for item in frames_json['skipped_frames']}
+
+    decoded_frame = exported_by_frame[0]
+    assert decoded_frame['data_offset'] == payloads_by_frame[0]['data_offset']
+    assert decoded_frame['data_chunk'] == payloads_by_frame[0]['data_chunk']
+
+    degraded_frame = exported_by_frame[1]
+    assert degraded_frame['data_offset'] == payloads_by_frame[1]['data_offset']
+    assert degraded_frame['data_chunk'] == payloads_by_frame[1]['data_chunk']
+
+    skipped_payload = payloads_by_frame[2]
     assert skipped_payload['data_chunk'] == -1
     assert skipped_payload['decode_status'] == 'skipped'
     assert skipped_payload['skipped_reason'] == 'missing_data_chunk'
-    skipped_frame = next(item for item in frames_json['skipped_frames'] if item['frame'] == 1)
+    skipped_frame = skipped_by_frame[2]
+    assert skipped_frame['data_offset'] == skipped_payload['data_offset']
+    assert skipped_frame['data_chunk'] == skipped_payload['data_chunk']
     assert skipped_frame['decode_status'] == 'skipped'
     assert skipped_frame['skipped_reason'] == 'missing_data_chunk'
+
+    skipped_manifest = next(item for item in manifest_json['skipped_frames'] if item['frame'] == 2)
+    assert skipped_manifest['data_offset'] == skipped_payload['data_offset']
+    assert skipped_manifest['data_chunk'] == skipped_payload['data_chunk']
