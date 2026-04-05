@@ -178,3 +178,25 @@ This first pass implements:
 - research decoders for graphics packs `m3_0`, `m4_0`, `m11_0`, `m11_1`;
 - parsers for level / script packs `m8`, `m9`, `m10`;
 - parsers for tile / collision packs `m6_0..m6_5`.
+
+## CI запуск APK + JAR в Android эмуляторе
+
+В репозитории есть workflow `.github/workflows/run-apk.yml`, который на GitHub Actions:
+
+1. поднимает headless Android Emulator (API 30, x86_64);
+2. устанавливает `ru.playsoftware.j2meloader-101.apk` через `adb install`;
+3. копирует `240x320-rus-zombie-infection.jar` в `/sdcard/Download/game.jar`;
+4. запускает J2ME Loader и пытается открыть/запустить JAR;
+5. сохраняет артефакты (`logcat.txt`, screenshot, dumpsys) в `emulator-output`.
+
+Локальный скрипт автоматизации: `tools/ci/launch_j2me_in_emulator.sh`.
+
+Запуск в GitHub: **Actions → Run J2ME APK + JAR → Run workflow**.
+
+Workflow поддерживает параметр `strict_mode` (по умолчанию `true`):
+- `true` — job падает, если по `dumpsys/logcat` не удалось подтвердить запуск JAR;
+- `false` — job завершается успешно, но пишет предупреждение в `result.md`.
+
+Итог статуса выполнения пишется в:
+- `.artifacts/emulator/result.env`
+- `.artifacts/emulator/result.md`
