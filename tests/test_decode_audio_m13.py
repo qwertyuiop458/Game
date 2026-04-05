@@ -75,3 +75,49 @@ def test_decode_audio_swallows_chunk_errors_and_reports_invalid_stats(monkeypatc
     assert len(report['raw_audio']) == 1
     assert (output_dir / report['raw_audio'][0]['path']).exists()
     assert (output_dir / report['raw_audio'][0]['meta']).exists()
+
+
+def test_decode_audio_records_new_unsupported_signature(tmp_path: Path) -> None:
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_1', _make_container(b'\x01\x02\x03\x04\x05\x06'))
+
+    output_dir = tmp_path / 'out'
+    report = decode_audio(jar_path, output_dir)
+    unsupported_path = output_dir / report['unsupported_signature_registry']
+    unsupported = json.loads(unsupported_path.read_text(encoding='utf-8'))
+
+    assert len(unsupported) == 1
+    assert unsupported[0]['signature_hex'] == '010203040506'
+    assert unsupported[0]['first_seen_pack'] == 'm13_1'
+    assert unsupported[0]['chunk_index'] == 0
+    assert unsupported[0]['length'] == 6
+
+
+def test_decode_audio_does_not_duplicate_unsupported_signature(tmp_path: Path) -> None:
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_1', _make_container(b'\xaa\xbb\xcc', b'\xaa\xbb\xcc'))
+
+    output_dir = tmp_path / 'out'
+    report = decode_audio(jar_path, output_dir)
+    unsupported_path = output_dir / report['unsupported_signature_registry']
+    unsupported = json.loads(unsupported_path.read_text(encoding='utf-8'))
+
+    assert len(unsupported) == 1
+    assert unsupported[0]['signature_hex'] == 'aabbcc'
+
+
+def test_decode_audio_unsupported_signature_report_has_expected_structure(tmp_path: Path) -> None:
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_2', _make_container(b'\x00\xff\x7f\x80'))
+
+    output_dir = tmp_path / 'out'
+    report = decode_audio(jar_path, output_dir)
+    unsupported_path = output_dir / report['unsupported_signature_registry']
+    unsupported = json.loads(unsupported_path.read_text(encoding='utf-8'))
+
+    assert isinstance(unsupported, list)
+    assert len(unsupported) == 1
+    assert set(unsupported[0].keys()) == {'signature_hex', 'first_seen_pack', 'chunk_index', 'length', 'notes'}
