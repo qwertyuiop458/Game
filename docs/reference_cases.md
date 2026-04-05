@@ -6,7 +6,7 @@
 
 - `table_chunk.hex` — atlas-чанк в hex-тексте (основной вход декодера),
 - `external_*.hex` — дополнительные чанки в hex-тексте (если payload продолжается в следующих блоках),
-- `preview.png.b64` — ожидаемый превью-рендер в base64 (PNG),
+- `preview.png.b64` — ожидаемый детерминированный atlas-preview в base64 (PNG),
 - `expected.json` — зафиксированные метаданные сравнения,
 - `case.json` — манифест кейса (описание и имена файлов).
 
@@ -21,15 +21,57 @@
 
 Сверяются:
 
-1. **Размеры превью** (`width`, `height`, `pixel_count`).
-2. **Базовые пиксельные метрики**:
-   - `channel_sum` и `channel_mean` по RGBA,
-   - количество непрозрачных пикселей (`opaque_pixels`),
-   - число уникальных цветов (`unique_colors`).
-3. **Контрольные хэши**:
+1. **Полный набор кадров** (`frames`):
+   - полный список `frame_index` (без пропусков),
+   - размеры кадра (`width`, `height`),
+   - `decode_status` для каждого кадра,
+   - ключевые пиксельные метрики (`channel_sum`, `opaque_pixels`),
+   - `rgba_sha256` для каждого кадра.
+2. **Агрегаты по кейсу** (`totals`) для быстрого сравнения:
+   - общее количество кадров и статусы (`decoded/degraded/failed`),
+   - суммарные метрики (`pixel_count`, `opaque_pixels`, `channel_sum`),
+   - сводный hash по кадрам (`frames_rgba_sha256`),
+   - hash atlas-preview по RGBA (`preview_rgba_sha256`).
+3. **Контрольные хэши входов и preview-файла**:
    - SHA-256 входных бинарников (`table_sha256`, `external_sha256`),
-   - SHA-256 массива RGBA (`rgba_sha256`),
-   - SHA-256 PNG-файла превью (`png_sha256`).
+   - SHA-256 PNG-файла atlas-preview (`preview_png_sha256`).
+
+Новая структура `expected.json`:
+
+```json
+{
+  "case_id": "...",
+  "description": "...",
+  "atlas": { "frame_count": 0, "...": "..." },
+  "inputs": { "table_sha256": "...", "external_sha256": {} },
+  "frames": [
+    {
+      "frame_index": 0,
+      "width": 0,
+      "height": 0,
+      "rgba_sha256": "...",
+      "channel_sum": { "r": 0, "g": 0, "b": 0, "a": 0 },
+      "opaque_pixels": 0,
+      "decode_status": "decoded",
+      "pixel_count": 0
+    }
+  ],
+  "totals": {
+    "frame_count": 0,
+    "decoded_frames": 0,
+    "degraded_frames": 0,
+    "failed_frames": 0,
+    "pixel_count": 0,
+    "opaque_pixels": 0,
+    "channel_sum": { "r": 0, "g": 0, "b": 0, "a": 0 },
+    "frames_rgba_sha256": "...",
+    "preview_width": 0,
+    "preview_height": 0,
+    "preview_rgba_sha256": "...",
+    "preview_png_sha256": "..."
+  }
+}
+```
 
 ## Критерии «валидного кадра» на этапе рендера
 

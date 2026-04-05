@@ -8,29 +8,44 @@
   },
   "case_id": "packed4_inline",
   "description": "Репрезентативный PACKED_4 atlas со встроенным payload",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 2040,
+        "b": 1020,
+        "g": 1020,
+        "r": 1020
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 2,
+      "opaque_pixels": 8,
+      "pixel_count": 8,
+      "rgba_sha256": "b80be9cb1bc05c8e151dc9d8ab3a526df8f66dbd0508634af9a7f7d798d4ef5e",
+      "width": 4
+    }
+  ],
   "inputs": {
     "external_sha256": {},
     "table_sha256": "c12ca89c90b5d17eb786c1bcdf4c2a768469de69040c03b3f48273a0f095bbdf"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 255.0,
-      "b": 127.5,
-      "g": 127.5,
-      "r": 127.5
-    },
+  "totals": {
     "channel_sum": {
       "a": 2040,
       "b": 1020,
       "g": 1020,
       "r": 1020
     },
-    "height": 2,
+    "decoded_frames": 1,
+    "degraded_frames": 0,
+    "failed_frames": 0,
+    "frame_count": 1,
+    "frames_rgba_sha256": "0389b15c0121243bd1b08bb05227780f6cbe4c6d17232212576f0da6952c0d52",
     "opaque_pixels": 8,
     "pixel_count": 8,
-    "png_sha256": "8cc570defad896813f235aef52366d34774aecb8ba0d3d4863271758379e07a6",
-    "rgba_sha256": "b80be9cb1bc05c8e151dc9d8ab3a526df8f66dbd0508634af9a7f7d798d4ef5e",
-    "unique_colors": 4,
-    "width": 4
+    "preview_height": 2,
+    "preview_png_sha256": "8cc570defad896813f235aef52366d34774aecb8ba0d3d4863271758379e07a6",
+    "preview_rgba_sha256": "b80be9cb1bc05c8e151dc9d8ab3a526df8f66dbd0508634af9a7f7d798d4ef5e",
+    "preview_width": 4
   }
 }

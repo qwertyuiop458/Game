@@ -8,29 +8,74 @@
   },
   "case_id": "m11_0_chunk_05",
   "description": "Runtime regression reference case for m11_0 chunk 05",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 37740,
+        "b": 17340,
+        "g": 16558,
+        "r": 35921
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 13,
+      "opaque_pixels": 148,
+      "pixel_count": 208,
+      "rgba_sha256": "25261645892359be240b6985c87070fa220bafabd5e3adadb2197e807d5f5715",
+      "width": 16
+    },
+    {
+      "channel_sum": {
+        "a": 0,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "failed_decode",
+      "frame_index": 1,
+      "height": 12,
+      "opaque_pixels": 0,
+      "pixel_count": 0,
+      "rgba_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "width": 11
+    },
+    {
+      "channel_sum": {
+        "a": 0,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "failed_decode",
+      "frame_index": 2,
+      "height": 7,
+      "opaque_pixels": 0,
+      "pixel_count": 0,
+      "rgba_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "width": 11
+    }
+  ],
   "inputs": {
     "external_sha256": {},
     "table_sha256": "b0864f57b0a0dca3cbc8840373a2d5d861c14f02bf44722cdcf8eb94d6c49a7c"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 181.4423,
-      "b": 83.3654,
-      "g": 79.6058,
-      "r": 172.6971
-    },
+  "totals": {
     "channel_sum": {
       "a": 37740,
       "b": 17340,
       "g": 16558,
       "r": 35921
     },
-    "height": 13,
+    "decoded_frames": 1,
+    "degraded_frames": 0,
+    "failed_frames": 2,
+    "frame_count": 3,
+    "frames_rgba_sha256": "e5c9bfe86db20c944c72642dfb6c5d98b447291aa3d36135833f3ab51047f67f",
     "opaque_pixels": 148,
     "pixel_count": 208,
-    "png_sha256": "aa9745c2e919c52083d10924bc984101a0063170cae1b6a2d769b0c0dc82198f",
-    "rgba_sha256": "25261645892359be240b6985c87070fa220bafabd5e3adadb2197e807d5f5715",
-    "unique_colors": 5,
-    "width": 16
+    "preview_height": 13,
+    "preview_png_sha256": "6eb0c5dc8573d841ff64425949776d20f204281f638f0ccd59a9b0e6a244b090",
+    "preview_rgba_sha256": "e52e8ae4565b49b48fb36b0fca51ed9c5439a349dda649da7ba16c51c0baffd6",
+    "preview_width": 38
   }
 }

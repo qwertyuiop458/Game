@@ -8,29 +8,134 @@
   },
   "case_id": "m11_1_chunk_06",
   "description": "Runtime regression reference case for m11_1 chunk 06",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 12750,
+        "b": 9180,
+        "g": 5100,
+        "r": 10132
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 6,
+      "opaque_pixels": 50,
+      "pixel_count": 66,
+      "rgba_sha256": "d6be104d50ec7260fd47504a58ac820fa3ca0a044bb618b1e3169484e32e38a5",
+      "width": 11
+    },
+    {
+      "channel_sum": {
+        "a": 20655,
+        "b": 0,
+        "g": 0,
+        "r": 19278
+      },
+      "decode_status": "decoded",
+      "frame_index": 1,
+      "height": 9,
+      "opaque_pixels": 81,
+      "pixel_count": 81,
+      "rgba_sha256": "a506e3f623b0f48eef9bb731d79e3fa1466a9de6751fe9eb48ea4a6489790edd",
+      "width": 9
+    },
+    {
+      "channel_sum": {
+        "a": 6375,
+        "b": 0,
+        "g": 0,
+        "r": 5950
+      },
+      "decode_status": "decoded",
+      "frame_index": 2,
+      "height": 5,
+      "opaque_pixels": 25,
+      "pixel_count": 25,
+      "rgba_sha256": "58ae206f17386612ec0421ff660fa7cd441d124caae8fa1ef4889733e3f6b58a",
+      "width": 5
+    },
+    {
+      "channel_sum": {
+        "a": 4080,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "degraded_decode",
+      "frame_index": 3,
+      "height": 4,
+      "opaque_pixels": 16,
+      "pixel_count": 16,
+      "rgba_sha256": "20e65596fe7c15642996b35ef3054f8c93a772fc0e91f66b3174ae8ff26a2921",
+      "width": 4
+    },
+    {
+      "channel_sum": {
+        "a": 4080,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "degraded_decode",
+      "frame_index": 4,
+      "height": 4,
+      "opaque_pixels": 16,
+      "pixel_count": 16,
+      "rgba_sha256": "20e65596fe7c15642996b35ef3054f8c93a772fc0e91f66b3174ae8ff26a2921",
+      "width": 4
+    },
+    {
+      "channel_sum": {
+        "a": 4080,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "degraded_decode",
+      "frame_index": 5,
+      "height": 4,
+      "opaque_pixels": 16,
+      "pixel_count": 16,
+      "rgba_sha256": "20e65596fe7c15642996b35ef3054f8c93a772fc0e91f66b3174ae8ff26a2921",
+      "width": 4
+    },
+    {
+      "channel_sum": {
+        "a": 4080,
+        "b": 0,
+        "g": 0,
+        "r": 0
+      },
+      "decode_status": "degraded_decode",
+      "frame_index": 6,
+      "height": 4,
+      "opaque_pixels": 16,
+      "pixel_count": 16,
+      "rgba_sha256": "20e65596fe7c15642996b35ef3054f8c93a772fc0e91f66b3174ae8ff26a2921",
+      "width": 4
+    }
+  ],
   "inputs": {
     "external_sha256": {},
     "table_sha256": "5a6f86ec60a17443195feb32411aa6586808f9c7634020ceb4ab022b9ddddb7a"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 193.1818,
-      "b": 139.0909,
-      "g": 77.2727,
-      "r": 153.5152
-    },
+  "totals": {
     "channel_sum": {
-      "a": 12750,
+      "a": 56100,
       "b": 9180,
       "g": 5100,
-      "r": 10132
+      "r": 35360
     },
-    "height": 6,
-    "opaque_pixels": 50,
-    "pixel_count": 66,
-    "png_sha256": "b0f4b0596bbf9e8457795fe60ec313a4077cbc35ded91ea7bb5fffd5fdf4448d",
-    "rgba_sha256": "d6be104d50ec7260fd47504a58ac820fa3ca0a044bb618b1e3169484e32e38a5",
-    "unique_colors": 4,
-    "width": 11
+    "decoded_frames": 3,
+    "degraded_frames": 4,
+    "failed_frames": 0,
+    "frame_count": 7,
+    "frames_rgba_sha256": "a7ba830d9ba024a0c7d5b2c54cca1bec45198b317cda5c733d3e7bdf7d06c56c",
+    "opaque_pixels": 220,
+    "pixel_count": 236,
+    "preview_height": 9,
+    "preview_png_sha256": "41651cddaefa125d581c02206d7f10979299119076cd64cf188e5698af701eef",
+    "preview_rgba_sha256": "a6fe10266a62fe6ef56794423f699fa0042e4d6a25ccbd9c1ca0822590962530",
+    "preview_width": 41
   }
 }

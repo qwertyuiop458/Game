@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import struct
+import tempfile
 import zlib
 from dataclasses import dataclass
 from pathlib import Path
@@ -136,14 +137,141 @@ def _metrics(width: int, height: int, rgba: list[int]) -> dict[str, Any]:
     }
 
 
+def _load_frame_raw_block(atlas: Any, frame_index: int) -> bytes:
+    if frame_index >= len(atlas.sprite_data_offsets) or frame_index >= len(atlas.sprite_lengths):
+        return b''
+    frame_offset = atlas.sprite_data_offsets[frame_index]
+    frame_size = atlas.sprite_lengths[frame_index]
+    if frame_offset < 0 or frame_size <= 0:
+        return b''
+    return atlas.sprite_data[frame_offset:frame_offset + frame_size]
+
+
+def _compose_atlas_preview(frames: list[dict[str, Any]]) -> tuple[int, int, list[int]]:
+    if not frames:
+        return 1, 1, [0x00000000]
+    width = sum(frame['width'] for frame in frames)
+    height = max(frame['height'] for frame in frames)
+    atlas_rgba = [0x00000000] * (width * height)
+    cursor_x = 0
+    for frame in frames:
+        frame_width = frame['width']
+        frame_height = frame['height']
+        frame_rgba = frame['rgba']
+        for y in range(frame_height):
+            dst_row = y * width
+            src_row = y * frame_width
+            for x in range(frame_width):
+                src_index = src_row + x
+                if src_index < len(frame_rgba):
+                    atlas_rgba[dst_row + cursor_x + x] = frame_rgba[src_index]
+        cursor_x += frame_width
+    return width, height, atlas_rgba
+
+
+def _frame_contract(frame_index: int, width: int, height: int, rgba: list[int], decode_status: str) -> dict[str, Any]:
+    metrics = _metrics(width, height, rgba)
+    return {
+        'frame_index': frame_index,
+        'width': metrics['width'],
+        'height': metrics['height'],
+        'rgba_sha256': metrics['rgba_sha256'],
+        'channel_sum': metrics['channel_sum'],
+        'opaque_pixels': metrics['opaque_pixels'],
+        'decode_status': decode_status,
+        'pixel_count': metrics['pixel_count'],
+    }
+
+
+def _build_case_frames(atlas: Any) -> list[dict[str, Any]]:
+    frames: list[dict[str, Any]] = []
+    for frame_index in range(atlas.frame_count):
+        raw_block = _load_frame_raw_block(atlas, frame_index)
+        width, height, rgba, decode_status = _decode_frame_with_status(atlas, frame_index, raw_block)
+        frames.append(
+            {
+                'frame_index': frame_index,
+                'width': width,
+                'height': height,
+                'rgba': rgba,
+                'decode_status': decode_status,
+                'raw_payload_size': len(raw_block),
+            }
+        )
+    return frames
+
+
+def _alpha_stats(rgba: list[int]) -> dict[str, int]:
+    if not rgba:
+        return {'min': 0, 'max': 0, 'non_zero': 0}
+    alphas = [((px >> 24) & 0xFF) for px in rgba]
+    return {'min': min(alphas), 'max': max(alphas), 'non_zero': sum(1 for alpha in alphas if alpha > 0)}
+
+
+def _opaque_grayscale_fallback(width: int, height: int, indices: list[int] | None, raw_block: bytes) -> list[int]:
+    total = max(1, width * height)
+    source: list[int]
+    if indices:
+        source = [value & 0xFF for value in indices]
+    elif raw_block:
+        source = list(raw_block)
+    else:
+        source = [0]
+    rgba: list[int] = []
+    for idx in range(total):
+        gray = source[idx % len(source)]
+        rgba.append(0xFF000000 | (gray << 16) | (gray << 8) | gray)
+    return rgba
+
+
+def _decode_frame_with_status(atlas: Any, frame_index: int, raw_block: bytes) -> tuple[int, int, list[int], str]:
+    frame = atlas.frames[frame_index]
+    width = max(1, frame.width)
+    height = max(1, frame.height)
+    decode_status = 'decoded'
+    decoded = atlas.rgba_for_frame(frame_index, 0)
+    if decoded is not None:
+        width, height, rgba = decoded
+    else:
+        rgba = []
+    raw_size = len(raw_block)
+    initial_alpha = _alpha_stats(rgba)
+    alpha_failed = decoded is None or initial_alpha['non_zero'] == 0
+    if raw_size > 0 and alpha_failed:
+        indices = atlas.decode_frame_indices(frame_index)
+        rgba = _opaque_grayscale_fallback(width, height, indices, raw_block)
+        decode_status = 'degraded_decode'
+    elif decoded is None:
+        decode_status = 'failed_decode'
+    return width, height, rgba, decode_status
+
+
 def _build_expected_case(case: ReferenceCase) -> dict[str, Any]:
     table_blob = _load_bytes(case.table_chunk, case.table_chunk_hex)
     external_data = [(idx, _load_bytes(raw_path, hex_path)) for idx, raw_path, hex_path in case.external_chunks]
     atlas = parse_atlas(case.case_id, table_blob, chunk_index=0, external_chunks=external_data)
-    decoded = atlas.rgba_for_frame(0, 0)
-    if decoded is None:
-        raise ValueError(f'Case {case.case_id}: frame 0 failed to decode')
-    width, height, rgba = decoded
+    frame_entries = _build_case_frames(atlas)
+    frames_contract = [
+        _frame_contract(
+            frame_index=frame['frame_index'],
+            width=frame['width'],
+            height=frame['height'],
+            rgba=frame['rgba'],
+            decode_status=frame['decode_status'],
+        )
+        for frame in frame_entries
+    ]
+    total_channel_sum = {'r': 0, 'g': 0, 'b': 0, 'a': 0}
+    total_opaque_pixels = 0
+    total_pixels = 0
+    for item in frames_contract:
+        total_opaque_pixels += item['opaque_pixels']
+        total_pixels += item['pixel_count']
+        for channel in ('r', 'g', 'b', 'a'):
+            total_channel_sum[channel] += item['channel_sum'][channel]
+
+    preview_width, preview_height, preview_rgba = _compose_atlas_preview(frame_entries)
+    preview_rgba_hash = _metrics(preview_width, preview_height, preview_rgba)['rgba_sha256']
     preview_hash = _sha256_hex(_load_preview_png(case))
     table_hash = _sha256_hex(table_blob)
     external_hashes = {str(idx): _sha256_hex(payload) for idx, payload in external_data}
@@ -161,9 +289,22 @@ def _build_expected_case(case: ReferenceCase) -> dict[str, Any]:
             'table_sha256': table_hash,
             'external_sha256': external_hashes,
         },
-        'preview': {
-            **_metrics(width, height, rgba),
-            'png_sha256': preview_hash,
+        'frames': frames_contract,
+        'totals': {
+            'frame_count': len(frames_contract),
+            'decoded_frames': sum(1 for frame in frames_contract if frame['decode_status'] == 'decoded'),
+            'degraded_frames': sum(1 for frame in frames_contract if frame['decode_status'] == 'degraded_decode'),
+            'failed_frames': sum(1 for frame in frames_contract if frame['decode_status'] == 'failed_decode'),
+            'pixel_count': total_pixels,
+            'opaque_pixels': total_opaque_pixels,
+            'channel_sum': total_channel_sum,
+            'frames_rgba_sha256': _sha256_hex(
+                ''.join(frame['rgba_sha256'] for frame in frames_contract).encode('ascii')
+            ),
+            'preview_width': preview_width,
+            'preview_height': preview_height,
+            'preview_rgba_sha256': preview_rgba_hash,
+            'preview_png_sha256': preview_hash,
         },
     }
 
@@ -200,15 +341,25 @@ def verify_reference_cases(base_dir: Path = DEFAULT_CASES_DIR) -> list[str]:
     for case in load_reference_cases(base_dir):
         expected = json.loads(case.expected_metadata.read_text(encoding='utf-8'))
         actual = _build_expected_case(case)
+        expected_frames = expected.get('frames', [])
+        actual_frames = actual.get('frames', [])
+        expected_indexes = [item.get('frame_index') for item in expected_frames]
+        actual_indexes = [item.get('frame_index') for item in actual_frames]
+        if len(expected_frames) != len(actual_frames) or expected_indexes != actual_indexes:
+            mismatches.append(
+                f'[{case.case_id}] frame set mismatch: '
+                f'expected count/indexes={len(expected_frames)}/{expected_indexes}, '
+                f'actual count/indexes={len(actual_frames)}/{actual_indexes}'
+            )
         preview_bytes = _load_preview_png(case)
         png_width, png_height, png_rgba = _read_png_rgba_bytes(preview_bytes, case.case_id)
         png_metrics = _metrics(png_width, png_height, png_rgba)
-        if png_metrics['rgba_sha256'] != actual['preview']['rgba_sha256']:
+        if png_metrics['rgba_sha256'] != actual['totals']['preview_rgba_sha256']:
             mismatches.append(
                 f'[{case.case_id}] preview PNG pixel hash mismatch: '
-                f"{png_metrics['rgba_sha256']} != {actual['preview']['rgba_sha256']}"
+                f"{png_metrics['rgba_sha256']} != {actual['totals']['preview_rgba_sha256']}"
             )
-        actual['preview']['png_sha256'] = _sha256_hex(preview_bytes)
+        actual['totals']['preview_png_sha256'] = _sha256_hex(preview_bytes)
         if expected != actual:
             mismatches.append(
                 f'[{case.case_id}] metadata mismatch:\n'
@@ -224,14 +375,14 @@ def collect_reference_case_updates(base_dir: Path = DEFAULT_CASES_DIR) -> list[d
         expected = json.loads(case.expected_metadata.read_text(encoding='utf-8'))
         actual = _build_expected_case(case)
         preview_bytes = _load_preview_png(case)
-        actual['preview']['png_sha256'] = _sha256_hex(preview_bytes)
+        actual['totals']['preview_png_sha256'] = _sha256_hex(preview_bytes)
         if expected == actual:
             continue
         updates.append(
             {
                 'case_id': case.case_id,
-                'expected_preview_hash': expected.get('preview', {}).get('rgba_sha256'),
-                'actual_preview_hash': actual.get('preview', {}).get('rgba_sha256'),
+                'expected_preview_hash': expected.get('totals', {}).get('preview_rgba_sha256'),
+                'actual_preview_hash': actual.get('totals', {}).get('preview_rgba_sha256'),
                 'expected_frame_count': expected.get('atlas', {}).get('frame_count'),
                 'actual_frame_count': actual.get('atlas', {}).get('frame_count'),
             }
@@ -244,14 +395,15 @@ def update_reference_cases(base_dir: Path = DEFAULT_CASES_DIR) -> None:
         table_blob = _load_bytes(case.table_chunk, case.table_chunk_hex)
         external_data = [(idx, _load_bytes(raw_path, hex_path)) for idx, raw_path, hex_path in case.external_chunks]
         atlas = parse_atlas(case.case_id, table_blob, chunk_index=0, external_chunks=external_data)
-        decoded = atlas.rgba_for_frame(0, 0)
-        if decoded is None:
-            raise ValueError(f'Case {case.case_id}: frame 0 failed to decode')
-        width, height, rgba = decoded
-        tmp_png_path = case.expected_metadata.parent / '.tmp_preview.png'
-        write_rgba_png(tmp_png_path, width, height, rgba)
-        _write_preview_png(case, tmp_png_path.read_bytes())
-        tmp_png_path.unlink(missing_ok=True)
+        frame_entries = _build_case_frames(atlas)
+        preview_width, preview_height, preview_rgba = _compose_atlas_preview(frame_entries)
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            write_rgba_png(tmp_path, preview_width, preview_height, preview_rgba)
+            _write_preview_png(case, tmp_path.read_bytes())
+        finally:
+            tmp_path.unlink(missing_ok=True)
         payload = _build_expected_case(case)
         case.expected_metadata.write_text(
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + '\n',

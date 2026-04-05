@@ -24,10 +24,28 @@ def test_graphics_reference_cases_include_stable_render_metrics() -> None:
     for case in load_reference_cases(Path('tests/reference_cases/graphics')):
         expected = json.loads(case.expected_metadata.read_text(encoding='utf-8'))
         actual = _build_expected_case(case)
-        assert expected['preview']['width'] == actual['preview']['width']
-        assert expected['preview']['height'] == actual['preview']['height']
-        assert expected['preview']['rgba_sha256'] == actual['preview']['rgba_sha256']
-        assert expected['preview']['channel_sum'] == actual['preview']['channel_sum']
+        assert isinstance(expected['frames'], list)
+        assert isinstance(actual['frames'], list)
+        assert expected['totals']['frame_count'] == len(expected['frames'])
+        assert actual['totals']['frame_count'] == len(actual['frames'])
+        assert [frame['frame_index'] for frame in expected['frames']] == list(range(len(expected['frames'])))
+        assert [frame['frame_index'] for frame in actual['frames']] == list(range(len(actual['frames'])))
+
+        assert expected['totals']['preview_rgba_sha256'] == actual['totals']['preview_rgba_sha256']
+        assert expected['totals']['channel_sum'] == actual['totals']['channel_sum']
+        assert expected['totals']['opaque_pixels'] == actual['totals']['opaque_pixels']
+
+        expected_frames = {frame['frame_index']: frame for frame in expected['frames']}
+        actual_frames = {frame['frame_index']: frame for frame in actual['frames']}
+        assert expected_frames.keys() == actual_frames.keys()
+        for frame_index, expected_frame in expected_frames.items():
+            actual_frame = actual_frames[frame_index]
+            assert expected_frame['width'] == actual_frame['width']
+            assert expected_frame['height'] == actual_frame['height']
+            assert expected_frame['rgba_sha256'] == actual_frame['rgba_sha256']
+            assert expected_frame['channel_sum'] == actual_frame['channel_sum']
+            assert expected_frame['opaque_pixels'] == actual_frame['opaque_pixels']
+            assert expected_frame['decode_status'] == actual_frame['decode_status']
 
 
 @pytest.mark.graphics

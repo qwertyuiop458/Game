@@ -8,29 +8,44 @@
   },
   "case_id": "packed2_rgb4444_inline",
   "description": "Synthetic reference case: packed2_rgb4444_inline",
+  "frames": [
+    {
+      "channel_sum": {
+        "a": 2040,
+        "b": 510,
+        "g": 510,
+        "r": 510
+      },
+      "decode_status": "decoded",
+      "frame_index": 0,
+      "height": 2,
+      "opaque_pixels": 8,
+      "pixel_count": 8,
+      "rgba_sha256": "3277a72649632e13772770d0473b7109849881aacdaac055a8ecd6b53950ae1e",
+      "width": 4
+    }
+  ],
   "inputs": {
     "external_sha256": {},
     "table_sha256": "c33bfd83f426e7944f3a30ce88b4d374e4743cf4d3e3e1f3a5b970e7c0117ebc"
   },
-  "preview": {
-    "channel_mean": {
-      "a": 255.0,
-      "b": 63.75,
-      "g": 63.75,
-      "r": 63.75
-    },
+  "totals": {
     "channel_sum": {
       "a": 2040,
       "b": 510,
       "g": 510,
       "r": 510
     },
-    "height": 2,
+    "decoded_frames": 1,
+    "degraded_frames": 0,
+    "failed_frames": 0,
+    "frame_count": 1,
+    "frames_rgba_sha256": "188ee895e6d37ba8e8ee5fc59386cca28acc895ecb1fb6884e4ef6a4b93c8eec",
     "opaque_pixels": 8,
     "pixel_count": 8,
-    "png_sha256": "0061793221d887a6c0443d0408e1dcae3ff1c4a87d504f105581d87251632c7f",
-    "rgba_sha256": "3277a72649632e13772770d0473b7109849881aacdaac055a8ecd6b53950ae1e",
-    "unique_colors": 4,
-    "width": 4
+    "preview_height": 2,
+    "preview_png_sha256": "0061793221d887a6c0443d0408e1dcae3ff1c4a87d504f105581d87251632c7f",
+    "preview_rgba_sha256": "3277a72649632e13772770d0473b7109849881aacdaac055a8ecd6b53950ae1e",
+    "preview_width": 4
   }
 }
