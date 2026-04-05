@@ -50,6 +50,7 @@ def run_extractor(jar: Path, output: Path) -> dict:
         'graphics': graphics,
         'ui': ui,
         'final_table_rows': len(final_table),
+        'scripts_semantic_coverage': maps_bundle['scripts'].get('m9', {}).get('opcode_coverage', {}),
     }
     write_json(output / 'summary.json', summary)
     return summary
