@@ -10,6 +10,24 @@ from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semant
 CONFIDENCE_VALUES = ('direct', 'inferred', 'unknown')
 
 
+def _classify_confidence(rule: str) -> str:
+    """Classify evidence confidence for chapter links.
+
+    Rules:
+    - direct: explicit id/container/chunk references from known structures or script commands.
+    - inferred: heuristic assignments (even partitioning, global/shared pack assumptions).
+    - unknown: fallback rows without chapter-specific evidence.
+    """
+    normalized = rule.strip().lower()
+    if normalized in {'structure', 'script', 'id_reference', 'explicit_reference'}:
+        return 'direct'
+    if normalized in {'heuristic', 'name_match', 'partition'}:
+        return 'inferred'
+    if normalized in {'unconfirmed', 'fallback', 'missing_evidence'}:
+        return 'unknown'
+    return 'unknown'
+
+
 def _map_entries(project: JarProject, chapter: int) -> list[dict[str, Any]]:
     container_name = f'm6_{chapter}'
     container = project.containers.get(container_name)
@@ -79,6 +97,9 @@ def _validate_reference(project: JarProject, ref: dict[str, Any]) -> tuple[bool,
 def _keep_valid_refs(project: JarProject, refs: list[dict[str, Any]], dropped_bucket: list[dict[str, Any]]) -> list[dict[str, Any]]:
     valid_entries: list[dict[str, Any]] = []
     for entry in refs:
+        confidence = entry.get('confidence')
+        if confidence not in CONFIDENCE_VALUES:
+            entry['confidence'] = 'unknown'
         ok, error = _validate_reference(project, entry['ref'])
         if ok:
             valid_entries.append(entry)
@@ -385,6 +406,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     cross_check = {
         'total_refs': len(all_refs),
         'valid_refs': 0,
+        'valid_confidence_totals': {value: 0 for value in CONFIDENCE_VALUES},
         'invalid_refs': [],
         'dropped_invalid_refs': dropped_invalid_refs,
         'conflict_summary': {
@@ -392,7 +414,9 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
             'by_type': conflict_counts,
         },
     }
-    for ref in all_refs:
+    all_entries = all_candidate_entries
+    for entry in all_entries:
+        ref = entry['ref']
         valid, error = _validate_reference(project, ref)
         if valid:
             cross_check['valid_refs'] += 1

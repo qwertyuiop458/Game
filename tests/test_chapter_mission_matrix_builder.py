@@ -75,6 +75,10 @@ def test_build_chapter_mission_matrix_exports_and_validates(tmp_path: Path) -> N
 
     payload = json.loads(json_path.read_text(encoding='utf-8'))
     assert payload[0]['graphics pack'] == 'm3_0, m4_0'
+    assert set(payload[0]['confidence_summary']) == {'direct', 'inferred', 'unknown'}
+    assert all(link['confidence'] in {'direct', 'inferred', 'unknown'} for link in payload[0]['links'])
+    markdown = md_path.read_text(encoding='utf-8')
+    assert 'confidence' in markdown.splitlines()[0]
 
 
 def test_chapter_counts_follow_m6_containers(tmp_path: Path) -> None:
@@ -126,6 +130,12 @@ def test_chapter_counts_follow_m6_containers(tmp_path: Path) -> None:
     assert len(matrix_rows) == 4
     assert [row['chapter'] for row in final_rows] == [0, 1, 2, 3]
     assert [row['chapter'] for row in matrix_rows] == [0, 1, 2, 3]
+    assert all(set(row['confidence']) == {'map pack', 'graphics pack', 'audio'} for row in final_rows)
+    assert all(
+        link['confidence'] in {'direct', 'inferred', 'unknown'}
+        for row in matrix_rows
+        for link in row['links']
+    )
 
 
 def test_graphics_chunk_links_are_not_identical_between_chapters_by_default(tmp_path: Path) -> None:

@@ -18,6 +18,20 @@ from tools.script_parser import (
     parse_script_chunk_semantic,
 )
 
+CONFIDENCE_VALUES = ('direct', 'inferred', 'unknown')
+
+
+def _classify_link_confidence(rule: str) -> str:
+    """Classify link confidence used by chapter/asset tables."""
+    normalized = rule.strip().lower()
+    if normalized in {'id_reference', 'script_reference', 'explicit_container'}:
+        return 'direct'
+    if normalized in {'heuristic_match', 'partition', 'shared_pack'}:
+        return 'inferred'
+    if normalized in {'fallback', 'unknown'}:
+        return 'unknown'
+    return 'unknown'
+
 
 def factor_grid(cells: int) -> tuple[int, int]:
     if cells <= 0:
@@ -416,15 +430,29 @@ def build_final_table(project: JarProject, output: Path, maps_report: dict, scri
             'map pack': f'm6_{chapter} ({map_counts.get(f"m6_{chapter}", 0)} maps)',
             'graphics pack': 'm3_0 + m4_0 + m7 + m11_0 + m11_1',
             'audio': 'm13_1/m13_2 MIDI + raw cues',
+            'confidence': {
+                'map pack': _classify_link_confidence('explicit_container'),
+                'graphics pack': _classify_link_confidence('shared_pack'),
+                'audio': _classify_link_confidence('partition'),
+            },
             'key enemies': enemy_hints[chapter] if chapter < len(enemy_hints) else 'n/a',
             'key story events': story_hints[chapter] if chapter < len(story_hints) else 'n/a',
         })
     md = output / 'docs' / 'reverse_engineering' / 'final_asset_table.md'
     ensure_dir(md.parent)
-    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio', 'key enemies', 'key story events']
+    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio', 'confidence', 'key enemies', 'key story events']
     lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
     for row in rows:
-        lines.append('| ' + ' | '.join(str(row[h]) for h in headers) + ' |')
+        lines.append(
+            '| ' + ' | '.join(
+                str(
+                    row[h]
+                    if h != 'confidence'
+                    else ', '.join(f'{k}={v}' for k, v in row['confidence'].items())
+                )
+                for h in headers
+            ) + ' |'
+        )
     md.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     write_json(output / 'docs' / 'reverse_engineering' / 'final_asset_table.json', rows)
     return rows
@@ -557,18 +585,50 @@ def build_chapter_mission_matrix(
         )
 
         links = [
-            {'kind': 'map_pack', **_validate_link(map_pack, None)},
-            {'kind': 'text_chunk', **_validate_link('t0', text_entry.get('chunk_index') if isinstance(text_entry, dict) else None)},
+            {
+                'kind': 'map_pack',
+                'confidence': _classify_link_confidence('explicit_container'),
+                **_validate_link(map_pack, None),
+            },
+            {
+                'kind': 'text_chunk',
+                'confidence': _classify_link_confidence('id_reference'),
+                **_validate_link('t0', text_entry.get('chunk_index') if isinstance(text_entry, dict) else None),
+            },
         ]
         chapter_graphics_refs = _partition(graphics_refs, chapter)
-        links.extend({'kind': 'graphics_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in chapter_graphics_refs)
-        links.extend({'kind': 'audio_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in audio_refs)
         links.extend(
-            {'kind': 'script_chunk', **_validate_link('m9', mission.get('script_chunk'))}
+            {
+                'kind': 'graphics_chunk',
+                'confidence': _classify_link_confidence('heuristic_match'),
+                **_validate_link(ref['container'], ref['chunk_index']),
+            }
+            for ref in chapter_graphics_refs
+        )
+        links.extend(
+            {
+                'kind': 'audio_chunk',
+                'confidence': _classify_link_confidence('partition'),
+                **_validate_link(ref['container'], ref['chunk_index']),
+            }
+            for ref in audio_refs
+        )
+        links.extend(
+            {
+                'kind': 'script_chunk',
+                'confidence': _classify_link_confidence('script_reference'),
+                **_validate_link('m9', mission.get('script_chunk')),
+            }
             for mission in chapter_missions
             if mission.get('script_chunk') is not None
         )
+        for link in links:
+            if link.get('confidence') not in CONFIDENCE_VALUES:
+                link['confidence'] = 'unknown'
         invalid_links = [link for link in links if not link.get('valid')]
+        confidence_counts = {value: 0 for value in CONFIDENCE_VALUES}
+        for link in links:
+            confidence_counts[link['confidence']] += 1
 
         rows.append(
             {
@@ -584,6 +644,7 @@ def build_chapter_mission_matrix(
                     'all_links_valid': not invalid_links,
                     'invalid_links': invalid_links,
                 },
+                'confidence_summary': confidence_counts,
             }
         )
 
@@ -591,7 +652,7 @@ def build_chapter_mission_matrix(
     ensure_dir(meta_dir)
     write_json(meta_dir / 'chapter_mission_matrix.json', rows)
 
-    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'key enemies', 'key story events']
+    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'confidence', 'key enemies', 'key story events']
     lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
     for row in rows:
         lines.append(
@@ -602,6 +663,7 @@ def build_chapter_mission_matrix(
                     str(row['map pack']),
                     str(row['graphics pack']),
                     ', '.join(row['audio assets']) or '-',
+                    ', '.join(f'{k}={v}' for k, v in row['confidence_summary'].items()),
                     str(row['key enemies']),
                     str(row['key story events']),
                 ]

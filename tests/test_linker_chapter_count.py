@@ -48,8 +48,16 @@ def test_build_chapter_matrix_uses_dynamic_m6_count(tmp_path: Path, monkeypatch)
     assert len(payload['chapters']) == 4
     assert 'conflicts' in payload
     assert 'conflict_summary' in payload['cross_check']
+    assert set(payload['cross_check']['valid_confidence_totals']) == {'direct', 'inferred', 'unknown'}
+    for chapter_row in payload['chapters']:
+        for entry in chapter_row['direct_refs'] + chapter_row['inferred_refs']:
+            assert entry['confidence'] in {'direct', 'inferred', 'unknown'}
 
     conflicts_path = tmp_path / 'docs' / 'reverse_engineering' / 'linker_conflicts.json'
     conflicts_payload = json.loads(conflicts_path.read_text(encoding='utf-8'))
     assert set(conflicts_payload) == {'conflicts', 'summary'}
     assert conflicts_payload['summary'] == payload['cross_check']['conflict_summary']
+
+    md_path = tmp_path / 'docs' / 'reverse_engineering' / 'chapter_matrix.md'
+    markdown = md_path.read_text(encoding='utf-8')
+    assert 'confidence=' in markdown
