@@ -61,6 +61,15 @@ def test_decode_maps_marks_collision_size_mismatch_and_uses_collision_grid(tmp_p
         and {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'} <= set(entry)
         for entry in collision_validation['entries']
     )
+    for entry in collision_validation['entries']:
+        assert set(entry) >= {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'}
+        assert isinstance(entry['pack'], str)
+        assert isinstance(entry['chunk'], int)
+        assert entry['chunk'] >= 0
+        assert isinstance(entry['expected'], dict)
+        assert isinstance(entry['actual'], dict)
+        assert isinstance(entry['severity'], str)
+        assert isinstance(entry['message'], str)
 
     mismatch_report = json.loads((output_dir / 'extracted' / 'maps' / 'mismatch_report.json').read_text(encoding='utf-8'))
     assert set(mismatch_report) == {'total', 'counts', 'entries'}

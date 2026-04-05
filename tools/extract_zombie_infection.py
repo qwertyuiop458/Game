@@ -67,7 +67,22 @@ def _normalize_map_mismatch_summary(raw: Any) -> dict[str, Any]:
     maps_validation_failed = _to_non_negative_int(data.get('maps_validation_failed', 0))
     mismatched_maps = _to_non_negative_int(data.get('mismatched_maps', maps_validation_failed))
     mismatch_details_raw = data.get('mismatch_details')
-    mismatch_details = mismatch_details_raw if isinstance(mismatch_details_raw, list) else []
+    mismatch_details: list[dict[str, Any]] = []
+    if isinstance(mismatch_details_raw, list):
+        for item in mismatch_details_raw:
+            entry = item if isinstance(item, dict) else {}
+            expected = entry.get('expected') if isinstance(entry.get('expected'), dict) else {}
+            actual = entry.get('actual') if isinstance(entry.get('actual'), dict) else {}
+            mismatch_details.append(
+                {
+                    'pack': str(entry.get('pack', '')),
+                    'chunk': _to_non_negative_int(entry.get('chunk', 0)),
+                    'expected': expected,
+                    'actual': actual,
+                    'severity': str(entry.get('severity', 'unknown')),
+                    'message': str(entry.get('message', '')),
+                }
+            )
     if total_maps == 0:
         total_maps = maps_validation_passed + maps_validation_failed
     mismatched_maps = min(mismatched_maps, total_maps)
@@ -125,7 +140,9 @@ def _normalize_linker_conflicts_summary(raw: Any) -> dict[str, Any]:
     total_conflicts = _to_non_negative_int(data.get('total_conflicts', 0))
     blocking_conflicts = min(_to_non_negative_int(data.get('blocking_conflicts', 0)), total_conflicts)
     conflicts_raw = data.get('conflicts')
-    conflicts = conflicts_raw if isinstance(conflicts_raw, list) else []
+    conflicts: list[dict[str, Any]] = []
+    if isinstance(conflicts_raw, list):
+        conflicts = [entry if isinstance(entry, dict) else {'value': str(entry)} for entry in conflicts_raw]
     return {
         'total_conflicts': total_conflicts,
         'blocking_conflicts': blocking_conflicts,
