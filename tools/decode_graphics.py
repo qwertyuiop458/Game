@@ -26,7 +26,7 @@ class ImagePayload:
     size: int
     raw_path: str | None = None
     png_path: str | None = None
-    skipped_reason: str | None = None
+    decode_status: str = 'decoded'
 
 
 @dataclass
@@ -309,6 +309,77 @@ def _hypothesis_id(pack_name: str, chunk_index: int) -> str:
     return f'HYP-{pack_name}-{chunk_index:02d}-01'
 
 
+def _codec_path(pixel_format: int) -> str:
+    mapping = {
+        25840: 'RLE_ALPHA_8',
+        10225: 'RLE_8_A',
+        22258: 'RLE_8_B',
+        5632: 'PACKED_4',
+        2048: 'PACKED_3',
+        1024: 'PACKED_2',
+        512: 'PACKED_1',
+        22018: 'INDEX_8',
+    }
+    return mapping.get(pixel_format, f'UNKNOWN_{pixel_format}')
+
+
+def _alpha_stats(rgba: list[int]) -> dict[str, int]:
+    if not rgba:
+        return {'min': 0, 'max': 0, 'non_zero': 0}
+    alphas = [((px >> 24) & 0xFF) for px in rgba]
+    return {'min': min(alphas), 'max': max(alphas), 'non_zero': sum(1 for alpha in alphas if alpha > 0)}
+
+
+def _opaque_grayscale_fallback(width: int, height: int, indices: list[int] | None, raw_block: bytes) -> list[int]:
+    total = max(1, width * height)
+    source: list[int]
+    if indices:
+        source = [value & 0xFF for value in indices]
+    elif raw_block:
+        source = list(raw_block)
+    else:
+        source = [0]
+    rgba: list[int] = []
+    for idx in range(total):
+        gray = source[idx % len(source)]
+        rgba.append(0xFF000000 | (gray << 16) | (gray << 8) | gray)
+    return rgba
+
+
+def _render_frame_with_diagnostics(atlas: Atlas, frame_index: int, raw_block: bytes) -> tuple[int, int, list[int], str, dict[str, Any]]:
+    frame = atlas.frames[frame_index]
+    width = max(1, frame.width)
+    height = max(1, frame.height)
+    codec_path = _codec_path(atlas.pixel_format)
+    decode_status = 'decoded'
+
+    decoded = atlas.rgba_for_frame(frame_index, 0)
+    if decoded is not None:
+        width, height, rgba = decoded
+    else:
+        rgba = []
+
+    raw_size = len(raw_block)
+    initial_alpha = _alpha_stats(rgba)
+    diagnostics: dict[str, Any] = {
+        'raw_payload_size': raw_size,
+        'codec_path': codec_path,
+        'alpha': initial_alpha,
+    }
+
+    alpha_failed = decoded is None or (bool(rgba) and initial_alpha['non_zero'] == 0)
+    if raw_size > 0 and alpha_failed:
+        indices = atlas.decode_frame_indices(frame_index)
+        rgba = _opaque_grayscale_fallback(width, height, indices, raw_block)
+        decode_status = 'degraded_decode'
+        diagnostics['fallback_reason'] = 'raw_non_empty_alpha_unusable'
+        diagnostics['alpha'] = _alpha_stats(rgba)
+    elif decoded is None:
+        decode_status = 'failed_decode'
+
+    return width, height, rgba, decode_status, diagnostics
+
+
 def decode_graphics(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
@@ -365,33 +436,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     raw_block = b''
                 raw_block_path.write_bytes(raw_block)
                 raw_paths[frame.index] = str(raw_block_path.relative_to(output))
-
-                decoded = atlas.rgba_for_frame(frame.index, 0)
-                if decoded is None:
-                    skipped_frames.append(
-                        {
-                            'container': name,
-                            'chunk': chunk_index,
-                            'frame': frame.index,
-                            'raw_payload': raw_paths[frame.index],
-                            'data_chunk': atlas.sprite_chunk_indices[frame.index] if frame.index < len(atlas.sprite_chunk_indices) else None,
-                            'data_offset': atlas.sprite_chunk_offsets[frame.index] if frame.index < len(atlas.sprite_chunk_offsets) else None,
-                            'size': frame_size,
-                            'skipped_reason': _resolve_skipped_reason(
-                                atlas,
-                                ImagePayload(
-                                    frame_index=frame.index,
-                                    table_chunk=chunk_index,
-                                    data_chunk=atlas.sprite_chunk_indices[frame.index] if frame.index < len(atlas.sprite_chunk_indices) else None,
-                                    data_offset=atlas.sprite_chunk_offsets[frame.index] if frame.index < len(atlas.sprite_chunk_offsets) else None,
-                                    size=frame_size,
-                                    raw_path=raw_paths[frame.index],
-                                ),
-                            ),
-                        }
-                    )
-                    continue
-                width, height, rgba = decoded
+                width, height, rgba, decode_status, diagnostics = _render_frame_with_diagnostics(atlas, frame.index, raw_block)
 
                 png_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.png'
                 write_rgba_png(png_path, width, height, rgba)
@@ -405,6 +450,8 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     'path': rel,
                     'width': width,
                     'height': height,
+                    'decode_status': decode_status,
+                    'diagnostics': diagnostics,
                 }
                 exported_frames.append(frame_export)
                 result['images'].append(frame_export)
@@ -430,8 +477,14 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 manifest_path=str((pack_dir / 'manifest.json').relative_to(output)),
             )
             for payload in sprite.payloads:
-                if payload.png_path is None:
-                    payload.skipped_reason = _resolve_skipped_reason(atlas, payload)
+                matching = next(
+                    (item for item in exported_frames if item['frame'] == payload.frame_index),
+                    None,
+                )
+                if matching is not None:
+                    payload.decode_status = matching.get('decode_status', 'decoded')
+                else:
+                    payload.decode_status = 'failed_decode'
             manifest = _build_runtime_manifest(sprite, atlas)
             if not (
                 metadata['frame_count'] == len(manifest['frames']) == len(exported_frames)

@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from tools.decode_graphics import _render_frame_with_diagnostics
+from tools.graphics_decoder import parse_atlas
 from tools.reference_cases import _build_expected_case, load_reference_cases, verify_reference_cases
 
 
@@ -52,3 +54,21 @@ def test_reference_update_requires_explicit_confirmation(tmp_path: Path) -> None
         text=True,
     )
     assert allowed.returncode == 0, allowed.stdout + allowed.stderr
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_non_empty_raw_does_not_render_fully_transparent_without_status() -> None:
+    case_dir = Path('tests/reference_cases/graphics/index8_inline_zero_alpha_palette')
+    table_blob = bytes.fromhex((case_dir / 'table_chunk.hex').read_text(encoding='utf-8').strip())
+    atlas = parse_atlas('index8_inline_zero_alpha_palette', table_blob, chunk_index=0, external_chunks=[])
+    frame_index = 0
+    frame_offset = atlas.sprite_data_offsets[frame_index]
+    frame_size = atlas.sprite_lengths[frame_index]
+    raw_block = atlas.sprite_data[frame_offset:frame_offset + frame_size]
+
+    width, height, rgba, status, _diagnostics = _render_frame_with_diagnostics(atlas, frame_index, raw_block)
+    assert (width, height) == (2, 2)
+    assert raw_block
+    opaque_pixels = sum(1 for px in rgba if ((px >> 24) & 0xFF) > 0)
+    assert status in {'degraded_decode', 'failed_decode'} or opaque_pixels > 0

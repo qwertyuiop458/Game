@@ -1,0 +1,7 @@
+{
+  "case_id": "index8_inline_zero_alpha_palette",
+  "description": "INDEX_8 с непустым raw и палитрой с нулевой alpha",
+  "table_chunk_hex": "table_chunk.hex",
+  "preview_png_base64": "preview.png.b64",
+  "metadata_json": "expected.json"
+}
