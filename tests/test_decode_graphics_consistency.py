@@ -56,12 +56,16 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
     manifest_json = json.loads(manifest)
     frames_json = json.loads(frames)
 
-    assert metadata_json['frame_count'] == 1
-    assert len(manifest_json['frames']) == 1
-    assert len(frames_json['frames']) == 1
-    assert metadata_json['frame_count'] == len(manifest_json['frames']) == len(frames_json['frames'])
+    assert metadata_json['frame_count'] == 2
+    assert manifest_json['frame_count'] == 2
+    assert len(manifest_json['frames']) == 0
+    assert len(frames_json['frames']) == 0
+    assert len(frames_json['frames']) + len(frames_json['skipped_frames']) == metadata_json['frame_count']
 
     skipped_payload = next(payload for payload in frames_json['payloads'] if payload['frame_index'] == 1)
     assert skipped_payload['data_chunk'] == -1
+    assert skipped_payload['decode_status'] == 'skipped'
     assert skipped_payload['skipped_reason'] == 'missing_data_chunk'
-    assert frames_json['skipped_frames'][0]['skipped_reason'] == 'missing_data_chunk'
+    skipped_frame = next(item for item in frames_json['skipped_frames'] if item['frame'] == 1)
+    assert skipped_frame['decode_status'] == 'skipped'
+    assert skipped_frame['skipped_reason'] == 'missing_data_chunk'
