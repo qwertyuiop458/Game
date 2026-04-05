@@ -132,6 +132,120 @@ def _add_mismatch(
     )
 
 
+def _build_collision_validation_report(
+    project: JarProject,
+    map_report: dict[str, Any],
+    scripts: dict[str, Any],
+) -> dict[str, Any]:
+    entries: list[dict[str, Any]] = []
+
+    def add_entry(
+        *,
+        pack: str,
+        chunk: int | None,
+        expected: dict[str, Any],
+        actual: dict[str, Any],
+        severity: str,
+        message: str,
+    ) -> None:
+        entries.append(
+            {
+                'pack': pack,
+                'chunk': chunk,
+                'expected': expected,
+                'actual': actual,
+                'severity': severity,
+                'message': message,
+            }
+        )
+
+    m6_bounds = {
+        name: len(container.payloads)
+        for name, container in project.containers.items()
+        if re.fullmatch(r'm6_\d+', name)
+    }
+
+    for pack, payload in map_report.items():
+        for item in payload.get('maps', []):
+            chunk_index = item.get('chunk_index')
+            width = item.get('width')
+            height = item.get('height')
+            cells = item.get('cells')
+            tile_cells = item.get('tile_cells')
+            collision_cells = item.get('collision_cells')
+            collision_chunk_index = item.get('chunk_index', 0) + 1 if isinstance(item.get('chunk_index'), int) else None
+            if all(isinstance(value, int) for value in (width, height, cells)) and width * height != cells:
+                add_entry(
+                    pack=pack,
+                    chunk=chunk_index if isinstance(chunk_index, int) else None,
+                    expected={'grid_cells': width * height, 'layer': 'tile'},
+                    actual={'grid_cells': cells, 'layer': 'tile'},
+                    severity='error',
+                    message='Tile grid dimensions do not match tile cell count.',
+                )
+            if isinstance(collision_cells, int) and isinstance(cells, int) and collision_cells != cells:
+                add_entry(
+                    pack=pack,
+                    chunk=collision_chunk_index,
+                    expected={'grid_cells': cells, 'layer': 'collision'},
+                    actual={'grid_cells': collision_cells, 'layer': 'collision'},
+                    severity='error',
+                    message='Collision grid cell count does not match paired tile grid.',
+                )
+            if isinstance(tile_cells, int) and isinstance(collision_cells, int) and tile_cells != collision_cells:
+                add_entry(
+                    pack=pack,
+                    chunk=collision_chunk_index,
+                    expected={'tile_cells': tile_cells},
+                    actual={'collision_cells': collision_cells},
+                    severity='error',
+                    message='Tile/collision layer mismatch for paired chunks.',
+                )
+
+    referenced_layers = scripts.get('m8', {}).get('chunks', []) + scripts.get('m9', {}).get('chunk10_plus_scripts', [])
+    for row in referenced_layers:
+        for layer_name in ('tile_layers', 'collision_layers'):
+            for ref in row.get(layer_name, []):
+                pack = ref.get('pack')
+                subchunk = ref.get('subchunk')
+                if not isinstance(pack, str) or not isinstance(subchunk, int):
+                    add_entry(
+                        pack=pack if isinstance(pack, str) else 'unknown',
+                        chunk=subchunk if isinstance(subchunk, int) else None,
+                        expected={'layer_ref': 'pack:str, subchunk:int'},
+                        actual=ref if isinstance(ref, dict) else {'value': ref},
+                        severity='warning',
+                        message='Layer reference has invalid shape.',
+                    )
+                    continue
+                bound = m6_bounds.get(pack)
+                if bound is None or not (0 <= subchunk < bound):
+                    add_entry(
+                        pack=pack,
+                        chunk=subchunk,
+                        expected={'min_index': 0, 'max_index': (bound - 1) if isinstance(bound, int) else None},
+                        actual={'index': subchunk, 'layer_kind': layer_name},
+                        severity='error',
+                        message='Layer index is out of bounds for map pack payload count.',
+                    )
+
+    failed_chunks = {
+        (entry['pack'], entry['chunk'])
+        for entry in entries
+        if entry.get('severity') == 'error'
+    }
+    failed = len(failed_chunks)
+    total_maps = sum(payload.get('map_count', 0) for payload in map_report.values())
+    passed = max(0, total_maps - failed)
+    return {
+        'entries': entries,
+        'summary': {
+            'maps_validation_passed': passed,
+            'maps_validation_failed': failed,
+        },
+    }
+
+
 def _build_map_script_mismatch_report(
     project: JarProject,
     map_report: dict[str, Any],
@@ -865,14 +979,28 @@ def decode_maps(jar: Path, output: Path) -> dict:
             'm10': scripts.get('m10', {}),
         },
     })
+    collision_validation = _build_collision_validation_report(project, report, scripts)
+    write_json(maps_dir / 'collision_validation.json', collision_validation)
     mismatch_report = _build_map_script_mismatch_report(project, report, scripts, chapter_count)
     write_json(maps_dir / 'mismatch_report.json', mismatch_report)
     write_json(output / 'docs' / 'reverse_engineering' / 'scripts_index.json', scripts)
+    maps_validation = collision_validation.get('summary', {})
+    mismatched_maps = maps_validation.get('maps_validation_failed', 0)
+    total_maps = maps_validation.get('maps_validation_passed', 0) + mismatched_maps
     return {
         'maps': report,
         'scripts': scripts,
+        'collision_validation': collision_validation,
+        'collision_validation_path': str((maps_dir / 'collision_validation.json').relative_to(output)),
         'mismatch_report': mismatch_report,
         'mismatch_report_path': str((maps_dir / 'mismatch_report.json').relative_to(output)),
+        'map_mismatch_summary': {
+            'total_maps': total_maps,
+            'mismatched_maps': mismatched_maps,
+            'mismatch_details': collision_validation.get('entries', []),
+            'maps_validation_passed': maps_validation.get('maps_validation_passed', 0),
+            'maps_validation_failed': maps_validation.get('maps_validation_failed', 0),
+        },
     }
 
 

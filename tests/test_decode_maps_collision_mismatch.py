@@ -49,9 +49,21 @@ def test_decode_maps_marks_collision_size_mismatch_and_uses_collision_grid(tmp_p
     assert rows[1]['x'] == '0'
     assert rows[1]['y'] == '1'
 
+    collision_validation = json.loads((output_dir / 'extracted' / 'maps' / 'collision_validation.json').read_text(encoding='utf-8'))
+    assert set(collision_validation) == {'entries', 'summary'}
+    assert collision_validation['summary']['maps_validation_failed'] >= 1
+    assert any(
+        entry['severity'] == 'error'
+        and entry['pack'] == 'm6_0'
+        and entry['expected'].get('grid_cells') == 6
+        and entry['actual'].get('grid_cells') == 5
+        and 'collision grid cell count' in entry['message'].lower()
+        and {'pack', 'chunk', 'expected', 'actual', 'severity', 'message'} <= set(entry)
+        for entry in collision_validation['entries']
+    )
+
     mismatch_report = json.loads((output_dir / 'extracted' / 'maps' / 'mismatch_report.json').read_text(encoding='utf-8'))
     assert set(mismatch_report) == {'total', 'counts', 'entries'}
-    assert mismatch_report['counts']['warning'] >= 1
     assert any(
         entry['check_name'] == 'grid_size_mismatch'
         and entry['severity'] == 'warning'
