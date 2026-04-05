@@ -1,0 +1,36 @@
+{
+  "atlas": {
+    "frame_count": 1,
+    "palette_count": 1,
+    "palette_format": 34952,
+    "palette_size": 2,
+    "pixel_format": 22018
+  },
+  "case_id": "index8_inline_zero_alpha_palette",
+  "description": "INDEX_8 с непустым raw и палитрой с нулевой alpha",
+  "inputs": {
+    "external_sha256": {},
+    "table_sha256": "d77b851b3c43bdcd4a4265b9d64f13d81cd54b1dca780e625be6e344c226c001"
+  },
+  "preview": {
+    "channel_mean": {
+      "a": 0.0,
+      "b": 127.5,
+      "g": 127.5,
+      "r": 127.5
+    },
+    "channel_sum": {
+      "a": 0,
+      "b": 510,
+      "g": 510,
+      "r": 510
+    },
+    "height": 2,
+    "opaque_pixels": 0,
+    "pixel_count": 4,
+    "png_sha256": "e24bb00570de7357d827fa29f50012a3b122603489b6b86a37a84a25909edbc9",
+    "rgba_sha256": "7bdb8f9036da02e7e4741df570b67a7549ed542e7a103f2c19b12700dc8f0bec",
+    "unique_colors": 2,
+    "width": 2
+  }
+}
