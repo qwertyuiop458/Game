@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from tools.common import COMMON_WIDTHS, JarProject, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
+from tools.common import CHAPTER_COUNT, COMMON_WIDTHS, JarProject, detect_m6_chapter_count, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
 from tools.m9_semantics import build_chapter_mission_links
 from tools.script_parser import (
     build_opcode_coverage,
@@ -115,6 +115,7 @@ def _write_rows_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str
 
 
 def build_final_table(project: JarProject, output: Path, maps_report: dict, script_report: dict, audio_report: dict, text_report: dict) -> list[dict[str, Any]]:
+    chapter_count = detect_m6_chapter_count(project.containers, fallback=CHAPTER_COUNT)
     map_counts = {name: maps_report.get(name, {}).get('map_count', 0) for name in maps_report}
     rows = []
     chapter_names = [
@@ -134,15 +135,15 @@ def build_final_table(project: JarProject, output: Path, maps_report: dict, scri
         'Локации становятся более экзотическими и давление на игрока возрастает.',
         'Финальная развязка ведёт к секретному этажу и бою с Ротвангом.',
     ]
-    for chapter in range(6):
+    for chapter in range(chapter_count):
         rows.append({
             'chapter': chapter,
-            'mission': chapter_names[chapter],
+            'mission': chapter_names[chapter] if chapter < len(chapter_names) else f'Глава {chapter}',
             'map pack': f'm6_{chapter} ({map_counts.get(f"m6_{chapter}", 0)} maps)',
             'graphics pack': 'm3_0 + m4_0 + m7 + m11_0 + m11_1',
             'audio': 'm13_1/m13_2 MIDI + raw cues',
-            'key enemies': enemy_hints[chapter],
-            'key story events': story_hints[chapter],
+            'key enemies': enemy_hints[chapter] if chapter < len(enemy_hints) else 'n/a',
+            'key story events': story_hints[chapter] if chapter < len(story_hints) else 'n/a',
         })
     md = output / 'docs' / 'reverse_engineering' / 'final_asset_table.md'
     ensure_dir(md.parent)
@@ -164,6 +165,8 @@ def build_chapter_mission_matrix(
     audio_report: dict,
     text_report: dict,
 ) -> list[dict[str, Any]]:
+    chapter_count = detect_m6_chapter_count(project.containers, fallback=CHAPTER_COUNT)
+
     def _validate_link(container: str, chunk_index: int | None = None) -> dict[str, Any]:
         container_obj = project.containers.get(container)
         if container_obj is None:
@@ -179,7 +182,7 @@ def build_chapter_mission_matrix(
             }
         return {'container': container, 'chunk_index': chunk_index, 'valid': True}
 
-    def _partition(items: list[dict[str, Any]], chapter: int, chapter_count: int = 6) -> list[dict[str, Any]]:
+    def _partition(items: list[dict[str, Any]], chapter: int, chapter_count: int = chapter_count) -> list[dict[str, Any]]:
         if not items:
             return []
         block = max(1, (len(items) + chapter_count - 1) // chapter_count)
@@ -216,11 +219,11 @@ def build_chapter_mission_matrix(
         for chunk in pack_payload.get('chunks', [])
         if isinstance(chunk, dict) and isinstance(chunk.get('chunk'), int)
     ]
-    by_chapter = {chapter: [] for chapter in range(6)}
+    by_chapter = {chapter: [] for chapter in range(chapter_count)}
     for item in mission_links:
-        by_chapter[item.get('chapter', 0) % 6].append(item)
+        by_chapter[item.get('chapter', 0) % chapter_count].append(item)
 
-    for chapter in range(6):
+    for chapter in range(chapter_count):
         map_pack = f'm6_{chapter}'
         chapter_missions = sorted(by_chapter.get(chapter, []), key=lambda row: row.get('mission', 0))
 
@@ -326,7 +329,8 @@ def decode_maps(jar: Path, output: Path) -> dict:
     exported_trigger_data: list[dict[str, Any]] = []
     exported_object_placements: list[dict[str, Any]] = []
 
-    for name in [f'm6_{index}' for index in range(6) if f'm6_{index}' in project.containers]:
+    chapter_count = detect_m6_chapter_count(project.containers, fallback=CHAPTER_COUNT)
+    for name in [f'm6_{index}' for index in range(chapter_count) if f'm6_{index}' in project.containers]:
         container = project.containers[name]
         entries = []
         chunk_pairs = _build_m6_chunk_pairs(len(container.payloads))

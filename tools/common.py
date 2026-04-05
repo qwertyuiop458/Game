@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import struct
 import zipfile
 import zlib
@@ -15,7 +16,23 @@ RESOURCE_ORDER = [
     'm6_5', 'm7', 'm8', 'm9', 'm10', 'm11_0', 'm11_1', 'm12', 'm13_1', 'm13_2',
 ]
 
+CHAPTER_COUNT = 6
+
 COMMON_WIDTHS = [16, 20, 24, 25, 30, 32, 40, 48, 50, 60, 64, 72, 75, 80, 90, 96, 100, 120, 128]
+
+
+def detect_m6_chapter_count(container_names: Any, fallback: int = CHAPTER_COUNT) -> int:
+    if isinstance(container_names, dict):
+        names = container_names.keys()
+    else:
+        names = container_names
+    max_index = -1
+    for name in names:
+        match = re.fullmatch(r'm6_(\d+)', str(name))
+        if not match:
+            continue
+        max_index = max(max_index, int(match.group(1)))
+    return max_index + 1 if max_index >= 0 else fallback
 
 
 def u16le(data: bytes, offset: int) -> int:
