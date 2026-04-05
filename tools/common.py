@@ -99,14 +99,14 @@ class ChunkInfo:
 
 
 class ContainerValidationError(ValueError):
-    def __init__(self, name: str, diagnostics: list[str], header_mode: str, chunk_count: int, data_length: int):
-        self.name = name
+    def __init__(self, container_name: str, diagnostics: list[str], header_mode: str, chunk_count: int, data_length: int):
+        self.container_name = container_name
         self.diagnostics = diagnostics
         self.header_mode = header_mode
         self.chunk_count = chunk_count
         self.data_length = data_length
         message = (
-            f'Invalid container table for "{name}" '
+            f'Invalid container table for container_name="{container_name}" '
             f'(mode={header_mode}, chunk_count={chunk_count}, bytes={data_length}): '
             + '; '.join(diagnostics)
         )
@@ -133,67 +133,6 @@ def validate_container_layout(data: bytes, header_size: int, offsets: list[int])
     return errors
 
 
-def parse_container_u32(data: bytes) -> dict[str, Any]:
-    if not data:
-        return {
-            'header_mode': 'u32',
-            'chunk_count': 0,
-            'header_size': 0,
-            'payload_base': 0,
-            'payload_size': 0,
-            'offsets': [],
-            'valid': True,
-            'validation_errors': [],
-        }
-    chunk_count = data[0]
-    header_size = 1 + chunk_count * 4
-    offsets: list[int] = []
-    if header_size <= len(data):
-        offsets = [u32le(data, 1 + i * 4) for i in range(chunk_count)]
-    else:
-        available = max(0, (len(data) - 1) // 4)
-        offsets = [u32le(data, 1 + i * 4) for i in range(available)]
-    errors = validate_container_layout(data, header_size, offsets)
-    return {
-        'header_mode': 'u32',
-        'chunk_count': chunk_count,
-        'header_size': header_size,
-        'payload_base': header_size,
-        'payload_size': max(0, len(data) - header_size),
-        'offsets': offsets,
-        'valid': len(errors) == 0,
-        'validation_errors': errors,
-    }
-
-
-def parse_container_u8(data: bytes) -> dict[str, Any]:
-    if not data:
-        return {
-            'header_mode': 'u8',
-            'chunk_count': 0,
-            'header_size': 0,
-            'payload_base': 0,
-            'payload_size': 0,
-            'offsets': [],
-            'valid': True,
-            'validation_errors': [],
-        }
-    chunk_count = data[0]
-    header_size = 1 + chunk_count
-    offsets = [data[1 + i] for i in range(min(chunk_count, max(0, len(data) - 1)))]
-    errors = validate_container_layout(data, header_size, offsets)
-    return {
-        'header_mode': 'u8',
-        'chunk_count': chunk_count,
-        'header_size': header_size,
-        'payload_base': header_size,
-        'payload_size': max(0, len(data) - header_size),
-        'offsets': offsets,
-        'valid': len(errors) == 0,
-        'validation_errors': errors,
-    }
-
-
 class Container:
     """Gameloft container format used by m* and t0.
 
@@ -201,11 +140,71 @@ class Container:
     The offsets are relative to the payload area *after* the header, not to file start.
     """
 
+    @staticmethod
+    def parse_u32_header(data: bytes) -> dict[str, Any]:
+        if not data:
+            return {
+                'header_mode': 'u32',
+                'chunk_count': 0,
+                'header_size': 0,
+                'payload_base': 0,
+                'payload_size': 0,
+                'offsets': [],
+                'valid': True,
+                'validation_errors': [],
+            }
+        chunk_count = data[0]
+        header_size = 1 + chunk_count * 4
+        if header_size <= len(data):
+            offsets = [u32le(data, 1 + i * 4) for i in range(chunk_count)]
+        else:
+            available = max(0, (len(data) - 1) // 4)
+            offsets = [u32le(data, 1 + i * 4) for i in range(available)]
+        errors = validate_container_layout(data, header_size, offsets)
+        return {
+            'header_mode': 'u32',
+            'chunk_count': chunk_count,
+            'header_size': header_size,
+            'payload_base': header_size,
+            'payload_size': max(0, len(data) - header_size),
+            'offsets': offsets,
+            'valid': len(errors) == 0,
+            'validation_errors': errors,
+        }
+
+    @staticmethod
+    def parse_u8_header(data: bytes) -> dict[str, Any]:
+        if not data:
+            return {
+                'header_mode': 'u8',
+                'chunk_count': 0,
+                'header_size': 0,
+                'payload_base': 0,
+                'payload_size': 0,
+                'offsets': [],
+                'valid': True,
+                'validation_errors': [],
+            }
+        chunk_count = data[0]
+        header_size = 1 + chunk_count
+        offsets = [data[1 + i] for i in range(min(chunk_count, max(0, len(data) - 1)))]
+        errors = validate_container_layout(data, header_size, offsets)
+        return {
+            'header_mode': 'u8',
+            'chunk_count': chunk_count,
+            'header_size': header_size,
+            'payload_base': header_size,
+            'payload_size': max(0, len(data) - header_size),
+            'offsets': offsets,
+            'valid': len(errors) == 0,
+            'validation_errors': errors,
+        }
+
     def __init__(self, name: str, data: bytes):
         self.name = name
         self.data = data
-        parsed_u32 = parse_container_u32(data)
-        parsed_u8 = parse_container_u8(data)
+        parsed_u32 = self.parse_u32_header(data)
+        parsed_u8 = self.parse_u8_header(data)
         if parsed_u32['valid'] and not parsed_u8['valid']:
             parsed = parsed_u32
         elif parsed_u8['valid'] and not parsed_u32['valid']:
@@ -233,25 +232,9 @@ class Container:
                 f'data length {len(data)} is too small for stable container parsing (<5 bytes)',
             ]
             self.valid = False
-        post_checks: list[str] = []
-        for idx, off in enumerate(self.offsets):
-            if not (0 <= off <= len(data)):
-                post_checks.append(f'offset[{idx}]={off} out of bounds [0, {len(data)}]')
-        for idx in range(len(self.offsets) - 1):
-            if self.offsets[idx] > self.offsets[idx + 1]:
-                post_checks.append(
-                    f'offsets are not sorted at {idx}->{idx + 1}: {self.offsets[idx]} > {self.offsets[idx + 1]}'
-                )
-        for idx, start in enumerate(self.offsets):
-            end = self.offsets[idx + 1] if idx + 1 < len(self.offsets) else self.payload_size
-            if end - start < 0:
-                post_checks.append(f'chunk[{idx}] has negative size: {end - start}')
-        if post_checks:
-            self.validation_errors = [*self.validation_errors, *post_checks]
-            self.valid = False
         if not self.valid:
             raise ContainerValidationError(
-                name=self.name,
+                container_name=self.name,
                 diagnostics=self.validation_errors,
                 header_mode=self.header_mode,
                 chunk_count=self.chunk_count,
