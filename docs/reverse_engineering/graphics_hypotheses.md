@@ -46,10 +46,19 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
 
 ## Active hypotheses
 
+## Пакет `m3_0`
+
 ### [HYP-m3_0-00-01] Базовая привязка палитры через runtime slot
 - **Pack/chunk:** `m3_0#00`
-- **Header structure hypothesis:** заголовок корректно парсится через `parse_atlas(...)`, а таблица длин кадров хранится в atlas chunk (`table_chunk=0`) с продолжением payload в последующих чанках контейнера.
+- **Формат заголовка (предполагаемые поля):**
+  - `pixel_format`
+  - `frame_count`
+  - `palette_count` / `palette_size`
+  - `regions_count` (опционально)
+  - `sprite_length_table_offset` (таблица длины кадров в table chunk)
+  - `sprite_data_stream_ref` (данные кадра могут продолжаться во внешних чанках)
 - **Palette hypothesis:**
+  - model: palette slot выбирается runtime (`runtime-selected`), per-frame remap не изменяет сырой источник
   - format: `palette_format` из `metadata.json` (ожидаемо один из `ARGB8888`, `RGB4444`, `RGB565+alpha-key`)
   - count/size: `palette_count >= 1`, `palette_size` из метаданных
   - expected visual effect: `frame_*.png` читаемы, фон прозрачен там, где alpha-индекс активен
@@ -61,15 +70,25 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
 - **Reproducibility anchors:**
   - metadata: `.artifacts/extractor_out/extracted/sprites/m3_0/chunk_00/metadata.json`
   - manifest: `.artifacts/extractor_out/extracted/sprites/m3_0/chunk_00/manifest.json`
-  - frame samples: `.artifacts/extractor_out/extracted/images/m3_0/chunk_00/frame_000.png`
-  - raw samples: `.artifacts/extractor_out/extracted/images/m3_0/chunk_00/frame_000.bin`
+  - research preview: `extracted/images/research/m3_0/chunk_00/preview_frame_000.md`
+  - research raw: `extracted/images/research/m3_0/chunk_00/raw_frame_000.md`
 - **Confirmation status:** `unverified`
-- **Validation notes:** проверить визуально соответствие palette preview (`palette_00.png`) и `frame_000.png`; затем сверить `data_offset` в `frames.json`.
+- **Критерий подтверждения/опровержения:**
+  - подтверждение: минимум 3 кадра с совпадением preview/raw и монотонными offsets в `frames.json`
+  - опровержение: систематический color noise или несовместимость `data_offset` с экспортированным `.bin`
+
+## Пакет `m4_0`
 
 ### [HYP-m4_0-00-01] Смещения sprite payload продолжаются в external chunks
 - **Pack/chunk:** `m4_0#00`
-- **Header structure hypothesis:** atlas table в текущем чанке с переносом сырого спрайт-пула в соседние чанки (через `_candidate_external_chunks`).
+- **Формат заголовка (предполагаемые поля):**
+  - `pixel_format`
+  - `frame_count`
+  - `palette_count` / `palette_size`
+  - `frame_table_offset`
+  - `payload_continuation_flags` (косвенно выводится по `data_chunk` ссылкам во внешние чанки)
 - **Palette hypothesis:**
+  - model: единая таблица палитр контейнера + runtime binding на кадр
   - format: из `metadata.json`, без ручного override
   - count/size: как в `palettes[*]` и `palette_previews`
   - expected visual effect: палитры дают связные цвета объектов, без массового «цветового шума»
@@ -81,15 +100,25 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
 - **Reproducibility anchors:**
   - metadata: `.artifacts/extractor_out/extracted/sprites/m4_0/chunk_00/metadata.json`
   - manifest: `.artifacts/extractor_out/extracted/sprites/m4_0/chunk_00/manifest.json`
-  - frame samples: `.artifacts/extractor_out/extracted/images/m4_0/chunk_00/frame_000.png`
-  - raw samples: `.artifacts/extractor_out/extracted/images/m4_0/chunk_00/frame_000.bin`
+  - research preview: `extracted/images/research/m4_0/chunk_00/preview_frame_000.md`
+  - research raw: `extracted/images/research/m4_0/chunk_00/raw_frame_000.md`
 - **Confirmation status:** `unverified`
-- **Validation notes:** отдельно сравнить `decoded_frame_count` в `extracted/images/index.json` и фактическое число `frame_*.png`.
+- **Критерий подтверждения/опровержения:**
+  - подтверждение: `decoded_frame_count` совпадает с фактическими preview/raw выборками и offsets не выходят за sprite stream
+  - опровержение: повторяемые пустые `.bin` при валидных размерах кадров или разрушенные палитры в preview
+
+## Пакет `m11_0`
 
 ### [HYP-m11_0-00-01] Таблица регионов не влияет на базовый decode frame payload
 - **Pack/chunk:** `m11_0#00`
-- **Header structure hypothesis:** region table (`regions`) парсится независимо от данных кадра и не должна ломать extraction payload.
+- **Формат заголовка (предполагаемые поля):**
+  - `pixel_format`
+  - `frame_count`
+  - `region_count`
+  - `palette_count` / `palette_size`
+  - `frame_payload_map_offset` (соответствие frame table -> payload stream)
 - **Palette hypothesis:**
+  - model: palette table общая для atlas, выбор активной палитры выполняется экземпляром спрайта
   - format: как в `palette_trace`/`palette_table`
   - count/size: доступно `available_palettes`
   - expected visual effect: основной кадр декодируется даже без применения регионов/анимаций
@@ -101,15 +130,26 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
 - **Reproducibility anchors:**
   - metadata: `.artifacts/extractor_out/extracted/sprites/m11_0/chunk_00/metadata.json`
   - manifest: `.artifacts/extractor_out/extracted/sprites/m11_0/chunk_00/manifest.json`
-  - frame samples: `.artifacts/extractor_out/extracted/images/m11_0/chunk_00/frame_000.png`
-  - raw samples: `.artifacts/extractor_out/extracted/images/m11_0/chunk_00/frame_000.bin`
+  - research preview: `extracted/images/research/m11_0/chunk_00/preview_frame_000.md`
+  - research raw: `extracted/images/research/m11_0/chunk_00/raw_frame_000.md`
 - **Confirmation status:** `unverified`
-- **Validation notes:** проверять пары `frame_id -> payload.frame_index` на совпадение.
+- **Критерий подтверждения/опровержения:**
+  - подтверждение: совпадают пары `frame_id -> payload.frame_index`; region table не ломает базовый decode
+  - опровержение: рассинхрон frame/payload mapping либо деградация decode после учета regions
+
+## Пакет `m11_1`
 
 ### [HYP-m11_1-00-01] Вариант контейнера m11_1 совместим с тем же codec_switch
 - **Pack/chunk:** `m11_1#00`
-- **Header structure hypothesis:** layout совместим с `m11_0`; различия — в конкретных значениях frame table и payload lengths.
+- **Формат заголовка (предполагаемые поля):**
+  - `pixel_format`
+  - `frame_count`
+  - `palette_count` / `palette_size`
+  - `region_count`
+  - `codec_switch_marker` (ветка decode определяется `pixel_format`)
+  - `payload_lengths_table`
 - **Palette hypothesis:**
+  - model: совместимая с `m11_0` таблица палитр, используемая через тот же runtime slot механизм
   - format: как в parsed palette header
   - count/size: из `palette_count`/`palette_size`
   - expected visual effect: одинаковый `codec_switch` должен декодировать большинство кадров без искажений
@@ -121,10 +161,12 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
 - **Reproducibility anchors:**
   - metadata: `.artifacts/extractor_out/extracted/sprites/m11_1/chunk_00/metadata.json`
   - manifest: `.artifacts/extractor_out/extracted/sprites/m11_1/chunk_00/manifest.json`
-  - frame samples: `.artifacts/extractor_out/extracted/images/m11_1/chunk_00/frame_000.png`
-  - raw samples: `.artifacts/extractor_out/extracted/images/m11_1/chunk_00/frame_000.bin`
+  - research preview: `extracted/images/research/m11_1/chunk_00/preview_frame_000.md`
+  - research raw: `extracted/images/research/m11_1/chunk_00/raw_frame_000.md`
 - **Confirmation status:** `unverified`
-- **Validation notes:** первичная проверка — наличие `tile_preview` и консистентный `frame_count` в trace.
+- **Критерий подтверждения/опровержения:**
+  - подтверждение: консистентный `frame_count` в trace + валидные preview/raw пары без системных искажений
+  - опровержение: пустые PNG при непустом raw в повторяемом наборе кадров или несоответствие выбранной ветки codec
 
 ---
 
