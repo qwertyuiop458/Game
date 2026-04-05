@@ -88,3 +88,11 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
     skipped_manifest = next(item for item in manifest_json['skipped_frames'] if item['frame'] == 2)
     assert skipped_manifest['data_offset'] == skipped_payload['data_offset']
     assert skipped_manifest['data_chunk'] == skipped_payload['data_chunk']
+    assert set(skipped_manifest) == {
+        'frame',
+        'raw_payload',
+        'data_chunk',
+        'data_offset',
+        'size',
+        'skipped_reason',
+    }
