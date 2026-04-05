@@ -214,3 +214,7 @@ Workflow запускается по `workflow_dispatch`, а также на `pu
 - workflow стартует автоматически на `push/pull_request`;
 - есть nightly `schedule` (03:00 UTC), который тоже выполняет запуск;
 - для schedule можно задать `Repository Variables`: `APK_SOURCE_URL` и `JAR_SOURCE_URL`.
+
+Запуск "в любой момент" без `gh` и без нового commit:
+- оставь комментарий ` /run-apk ` в Issue или PR этого репозитория;
+- workflow `Run J2ME APK + JAR` стартует сразу по `issue_comment` trigger.

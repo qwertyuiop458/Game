@@ -18,6 +18,8 @@ on:
         type: boolean
         required: true
         default: true
+  issue_comment:
+    types: [created]
   schedule:
     - cron: '0 3 * * *'
   pull_request:
@@ -35,6 +37,9 @@ on:
 
 jobs:
   run-apk:
+    if: |
+      github.event_name != 'issue_comment' ||
+      contains(github.event.comment.body, '/run-apk')
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
