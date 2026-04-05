@@ -27,6 +27,7 @@ class ImagePayload:
     raw_path: str | None = None
     png_path: str | None = None
     decode_status: str = 'decoded'
+    skipped_reason: str | None = None
 
 
 @dataclass
@@ -237,6 +238,7 @@ def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     return {
         'runtime_roles': sprite.runtime_roles,
         'composition_rules': sprite.composition_rules,
+        'frame_count': len(sprite.frames),
         'format_reconstruction': {
             'image_payload_blocks': [asdict(payload) for payload in sprite.payloads],
             'frame_table': [asdict(frame) for frame in sprite.frames],
@@ -424,6 +426,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             png_paths: dict[int, str] = {}
             raw_paths: dict[int, str] = {}
             skipped_frames: list[dict[str, Any]] = []
+            frame_status: dict[int, tuple[str, str | None]] = {}
 
             for frame in atlas.frames:
                 raw_block_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.bin'
@@ -436,7 +439,50 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     raw_block = b''
                 raw_block_path.write_bytes(raw_block)
                 raw_paths[frame.index] = str(raw_block_path.relative_to(output))
+                seed_payload = ImagePayload(
+                    frame_index=frame.index,
+                    table_chunk=chunk_index,
+                    data_chunk=atlas.sprite_chunk_indices[frame.index] if frame.index < len(atlas.sprite_chunk_indices) else None,
+                    data_offset=frame_offset,
+                    size=frame_size,
+                    raw_path=raw_paths[frame.index],
+                )
+                skipped_reason = _resolve_skipped_reason(atlas, seed_payload)
+                if skipped_reason != 'decoder_returned_none':
+                    skipped_frames.append(
+                        {
+                            'container': name,
+                            'chunk': chunk_index,
+                            'frame': frame.index,
+                            'raw_payload': raw_paths[frame.index],
+                            'data_chunk': seed_payload.data_chunk,
+                            'data_offset': frame_offset,
+                            'size': frame_size,
+                            'decode_status': 'skipped',
+                            'skipped_reason': skipped_reason,
+                        }
+                    )
+                    frame_status[frame.index] = ('skipped', skipped_reason)
+                    continue
+
                 width, height, rgba, decode_status, diagnostics = _render_frame_with_diagnostics(atlas, frame.index, raw_block)
+                if decode_status == 'failed_decode':
+                    skipped_frames.append(
+                        {
+                            'container': name,
+                            'chunk': chunk_index,
+                            'frame': frame.index,
+                            'raw_payload': raw_paths[frame.index],
+                            'data_chunk': seed_payload.data_chunk,
+                            'data_offset': frame_offset,
+                            'size': frame_size,
+                            'decode_status': decode_status,
+                            'skipped_reason': 'failed_decode',
+                            'diagnostics': diagnostics,
+                        }
+                    )
+                    frame_status[frame.index] = (decode_status, 'failed_decode')
+                    continue
 
                 png_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.png'
                 write_rgba_png(png_path, width, height, rgba)
@@ -455,11 +501,12 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 }
                 exported_frames.append(frame_export)
                 result['images'].append(frame_export)
+                frame_status[frame.index] = (decode_status, None)
 
             metadata['exported_frames'] = exported_frames
             metadata['skipped_frames'] = skipped_frames
             metadata['atlas_frame_count'] = metadata.get('frame_count', len(atlas.frames))
-            metadata['frame_count'] = len(exported_frames)
+            metadata['frame_count'] = len(atlas.frames)
             metadata['palette_previews'] = _export_palette_previews(output, atlas, f'{name}_chunk{chunk_index:02d}')
             metadata['tile_preview'] = _export_frame_grid(output, atlas, exported_frames, f'{name}_chunk{chunk_index:02d}')
             metadata['hypothesis_id'] = hypothesis_id
@@ -477,23 +524,29 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 manifest_path=str((pack_dir / 'manifest.json').relative_to(output)),
             )
             for payload in sprite.payloads:
-                matching = next(
-                    (item for item in exported_frames if item['frame'] == payload.frame_index),
-                    None,
-                )
-                if matching is not None:
-                    payload.decode_status = matching.get('decode_status', 'decoded')
-                else:
-                    payload.decode_status = 'failed_decode'
+                status, skipped_reason = frame_status.get(payload.frame_index, ('failed_decode', 'failed_decode'))
+                payload.decode_status = status
+                payload.skipped_reason = skipped_reason
             manifest = _build_runtime_manifest(sprite, atlas)
-            if not (
-                metadata['frame_count'] == len(manifest['frames']) == len(exported_frames)
-            ):
+            manifest_frames_len = len(manifest['frames'])
+            exported_frames_len = len(exported_frames)
+            metadata_frame_count = metadata['frame_count']
+            if manifest_frames_len != exported_frames_len:
                 raise ValueError(
                     f'Inconsistent frame counts for {name}/chunk_{chunk_index:02d}: '
-                    f"metadata={metadata['frame_count']} manifest={len(manifest['frames'])} "
-                    f'frames_json={len(exported_frames)}'
+                    f'manifest={manifest_frames_len} frames_json={exported_frames_len}'
                 )
+            skipped_len = len(skipped_frames)
+            if exported_frames_len != metadata_frame_count:
+                if exported_frames_len + skipped_len != metadata_frame_count:
+                    raise ValueError(
+                        f'Inconsistent frame accounting for {name}/chunk_{chunk_index:02d}: '
+                        f'metadata={metadata_frame_count} exported={exported_frames_len} skipped={skipped_len}'
+                    )
+                if any(item.get('decode_status') not in {'skipped', 'failed_decode'} for item in skipped_frames):
+                    raise ValueError(f'Invalid skipped frame statuses for {name}/chunk_{chunk_index:02d}')
+                if any(not item.get('skipped_reason') for item in skipped_frames):
+                    raise ValueError(f'Missing skipped_reason for {name}/chunk_{chunk_index:02d}')
             manifest_path = pack_dir / 'manifest.json'
             write_json(manifest_path, manifest)
 
