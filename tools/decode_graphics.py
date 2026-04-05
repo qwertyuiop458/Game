@@ -220,6 +220,20 @@ def _build_sprite_model(
 
 
 def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
+    exported_frame_ids = {payload.frame_index for payload in sprite.payloads if payload.png_path}
+    frame_rows = [asdict(frame) for frame in sprite.frames if frame.frame_id in exported_frame_ids]
+    skipped_rows = [
+        {
+            'frame': payload.frame_index,
+            'raw_payload': payload.raw_path,
+            'data_chunk': payload.data_chunk,
+            'data_offset': payload.data_offset,
+            'size': payload.size,
+            'skipped_reason': payload.skipped_reason,
+        }
+        for payload in sprite.payloads
+        if payload.png_path is None
+    ]
     return {
         'runtime_roles': sprite.runtime_roles,
         'composition_rules': sprite.composition_rules,
@@ -229,12 +243,25 @@ def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
             'region_table': [asdict(region) for region in sprite.regions],
             'palette_table': [asdict(palette) for palette in sprite.palettes],
         },
-        'frames': [asdict(frame) for frame in sprite.frames],
+        'frames': frame_rows,
+        'skipped_frames': skipped_rows,
         'regions': [asdict(region) for region in sprite.regions],
         'palettes': [asdict(palette) for palette in sprite.palettes],
         'animations': [animation.__dict__ for animation in atlas.animations],
         'anchors': atlas.anchors,
     }
+
+
+def _resolve_skipped_reason(atlas: Atlas, payload: ImagePayload) -> str:
+    if payload.size <= 0:
+        return 'empty_payload'
+    if payload.data_chunk in (None, -1):
+        return 'missing_data_chunk'
+    if payload.data_offset is None:
+        return 'missing_data_offset'
+    if atlas.pixel_format not in {25840, 10225, 22258, 5632, 2048, 1024, 512, 22018}:
+        return 'unsupported_pixel_format'
+    return 'decoder_returned_none'
 
 
 def _build_chunk_trace(pack: str, chunk_index: int, sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
@@ -393,9 +420,10 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             ensure_dir(pack_dir)
 
             metadata = atlas.to_metadata()
-            exported_frames = []
+            exported_frames: list[dict[str, Any]] = []
             png_paths: dict[int, str] = {}
             raw_paths: dict[int, str] = {}
+            skipped_frames: list[dict[str, Any]] = []
 
             for frame in atlas.frames:
                 raw_block_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.bin'
@@ -429,6 +457,9 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 result['images'].append(frame_export)
 
             metadata['exported_frames'] = exported_frames
+            metadata['skipped_frames'] = skipped_frames
+            metadata['atlas_frame_count'] = metadata.get('frame_count', len(atlas.frames))
+            metadata['frame_count'] = len(exported_frames)
             metadata['palette_previews'] = _export_palette_previews(output, atlas, f'{name}_chunk{chunk_index:02d}')
             metadata['tile_preview'] = _export_frame_grid(output, atlas, exported_frames, f'{name}_chunk{chunk_index:02d}')
             metadata['hypothesis_id'] = hypothesis_id
@@ -455,6 +486,14 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 else:
                     payload.decode_status = 'failed_decode'
             manifest = _build_runtime_manifest(sprite, atlas)
+            if not (
+                metadata['frame_count'] == len(manifest['frames']) == len(exported_frames)
+            ):
+                raise ValueError(
+                    f'Inconsistent frame counts for {name}/chunk_{chunk_index:02d}: '
+                    f"metadata={metadata['frame_count']} manifest={len(manifest['frames'])} "
+                    f'frames_json={len(exported_frames)}'
+                )
             manifest_path = pack_dir / 'manifest.json'
             write_json(manifest_path, manifest)
 
@@ -467,6 +506,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     'hypothesis_id': hypothesis_id,
                     'pixel_format': atlas.pixel_format,
                     'frames': exported_frames,
+                    'skipped_frames': skipped_frames,
                     'payloads': [asdict(payload) for payload in sprite.payloads],
                     'palettes': [asdict(palette) for palette in sprite.palettes],
                 },
