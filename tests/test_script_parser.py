@@ -9,6 +9,7 @@ from tools.script_parser import (
     parse_script_chunk_semantic,
     resolve_level_trace,
 )
+from tests.fixtures_mission_semantics import EXPECTED_MISSION_ROWS, SAMPLE_M9_CHUNK0
 
 
 @pytest.mark.extractor
@@ -87,3 +88,14 @@ def test_semantic_level_export(tmp_path: Path) -> None:
     assert 'collision_layers' in exported
     assert 'objects' in exported
     assert 'triggers' in exported
+
+
+@pytest.mark.extractor
+def test_resolve_level_trace_for_real_mission_examples() -> None:
+    tables = parse_m9_chunk_tables([SAMPLE_M9_CHUNK0])
+    for expected in EXPECTED_MISSION_ROWS:
+        trace = resolve_level_trace(expected['mission_id'], tables)
+        assert trace.chapter == expected['chapter']
+        assert trace.script_chunk == expected['script_chunk']
+        assert trace.map_pack_name == expected['map_pack_name']
+        assert trace.map_subchunk == expected['map_subchunk']

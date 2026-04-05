@@ -31,6 +31,44 @@ M9_DOCS: dict[str, Any] = {
     },
 }
 
+MISSION_FIELD_MAPPINGS: list[dict[str, str]] = [
+    {
+        'key': 'mission_id',
+        'source': 'chunk0_levels.level_index',
+        'interpretation': 'Идентификатор миссии/уровня в порядке записей chunk0',
+    },
+    {
+        'key': 'chapter',
+        'source': 'chunk0_levels.chapter_hint % chapter_count',
+        'interpretation': 'Индекс главы и выбор map pack `m6_<chapter>`',
+    },
+    {
+        'key': 'map_pack_name',
+        'source': 'm6_<chapter>',
+        'interpretation': 'Контейнер карты, связанный с миссией',
+    },
+    {
+        'key': 'map_subchunk',
+        'source': 'chunk0_levels.map_subchunk_hint',
+        'interpretation': 'Сабчанк тайловой карты в выбранном `m6_<chapter>`',
+    },
+    {
+        'key': 'script_subchunk_index',
+        'source': 'chunk0_levels.script_subchunk_hint',
+        'interpretation': 'Индекс сценарного сабчанка внутри m9 script-области',
+    },
+    {
+        'key': 'script_chunk',
+        'source': '10 + script_subchunk_index',
+        'interpretation': 'Номер script chunk в контейнере m9 (chunk >= 10)',
+    },
+    {
+        'key': 'm8_script_index',
+        'source': 'mission_id',
+        'interpretation': 'Базовый индекс m8-скрипта для миссии (через level index)',
+    },
+]
+
 
 @dataclass
 class LevelTrace:
@@ -119,12 +157,15 @@ def build_chapter_mission_links(m9_tables: dict[str, Any], chapter_count: int = 
         trace = resolve_level_trace(level_index, m9_tables, chapter_count=chapter_count)
         row = {
             'level_index': level_index,
+            'mission_id': level_index,
             'chapter': trace.chapter,
             'mission': level_index,
             'script_chunk': trace.script_chunk,
+            'script_subchunk_index': trace.script_chunk - 10,
             'script_pack_name': trace.script_pack_name,
             'map_pack_name': trace.map_pack_name,
             'map_subchunk': trace.map_subchunk,
+            'm8_script_index': level_index,
             'source': trace.source,
         }
         mission_links.append(row)
@@ -132,6 +173,7 @@ def build_chapter_mission_links(m9_tables: dict[str, Any], chapter_count: int = 
     return {
         'chapter_count': chapter_count,
         'levels_total': len(mission_links),
+        'field_mappings': MISSION_FIELD_MAPPINGS,
         'mission_links': mission_links,
         'chapter_index': chapter_index,
     }
