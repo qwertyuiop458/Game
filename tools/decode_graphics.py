@@ -369,7 +369,7 @@ def _render_frame_with_diagnostics(atlas: Atlas, frame_index: int, raw_block: by
         'alpha': initial_alpha,
     }
 
-    alpha_failed = decoded is None or (bool(rgba) and initial_alpha['non_zero'] == 0)
+    alpha_failed = decoded is None or initial_alpha['non_zero'] == 0
     if raw_size > 0 and alpha_failed:
         indices = atlas.decode_frame_indices(frame_index)
         rgba = _opaque_grayscale_fallback(width, height, indices, raw_block)
