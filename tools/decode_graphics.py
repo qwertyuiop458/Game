@@ -66,6 +66,13 @@ def _build_runtime_manifest(atlas: Atlas, png_paths: dict[int, str]) -> dict[str
             'height': frame.height,
             'pivot': {'x': frame.x, 'y': frame.y},
             'palette_index': 0,
+            'palette_format': atlas.palette_format,
+            'palette_size': atlas.palette_size,
+            'source_chunk_index': (
+                atlas.sprite_chunk_indices[frame.index]
+                if frame.index < len(atlas.sprite_chunk_indices)
+                else None
+            ),
             'image': png_paths.get(frame.index),
         })
 
@@ -82,7 +89,17 @@ def _build_runtime_manifest(atlas: Atlas, png_paths: dict[int, str]) -> dict[str
         'frames': frames,
         'regions': [region.__dict__ for region in atlas.regions],
         'animations': [animation.__dict__ for animation in atlas.animations],
+        'anchors': atlas.anchors,
     }
+
+
+def _candidate_external_chunks(container_payloads: list[bytes], table_chunk_index: int) -> list[tuple[int, bytes]]:
+    candidates: list[tuple[int, bytes]] = []
+    for idx in range(table_chunk_index + 1, len(container_payloads)):
+        payload = container_payloads[idx]
+        if payload:
+            candidates.append((idx, payload))
+    return candidates
 
 
 def decode_graphics(jar: Path, output: Path) -> dict:
@@ -106,8 +123,15 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             if not payload:
                 continue
             try:
-                atlas = parse_atlas(name, payload, chunk_index=chunk_index)
+                atlas = parse_atlas(
+                    name,
+                    payload,
+                    chunk_index=chunk_index,
+                    external_chunks=_candidate_external_chunks(container.payloads, chunk_index),
+                )
             except (IndexError, ValueError):
+                continue
+            if not atlas.frames or not atlas.palettes:
                 continue
 
             pack_dir = sprites_dir / name / f'chunk_{chunk_index:02d}'

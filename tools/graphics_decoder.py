@@ -112,6 +112,9 @@ class Atlas:
     palette_size: int
     pixel_format: int
     sprite_data_offsets: list[int]
+    sprite_chunk_indices: list[int]
+    sprite_chunk_offsets: list[int]
+    sprite_lengths: list[int]
     sprite_data: bytes
     has_alpha: bool
 
@@ -244,6 +247,7 @@ class Atlas:
             'palette_format': self.palette_format,
             'pixel_format': self.pixel_format,
             'has_alpha': self.has_alpha,
+            'table_chunk_index': self.chunk_index,
             'region_count': len(self.regions),
             'animation_count': len(self.animations),
             'anchor_count': len(self.anchors),
@@ -253,6 +257,15 @@ class Atlas:
             'animations': [animation.__dict__ for animation in self.animations],
             'anchors': self.anchors,
             'extra_quads': self.extra_quads,
+            'sprite_blocks': [
+                {
+                    'frame_index': frame_idx,
+                    'chunk_index': self.sprite_chunk_indices[frame_idx] if frame_idx < len(self.sprite_chunk_indices) else None,
+                    'chunk_offset': self.sprite_chunk_offsets[frame_idx] if frame_idx < len(self.sprite_chunk_offsets) else None,
+                    'size': self.sprite_lengths[frame_idx] if frame_idx < len(self.sprite_lengths) else None,
+                }
+                for frame_idx in range(len(self.frames))
+            ],
         }
 
 
@@ -264,7 +277,78 @@ def _read_u16(data: bytes, cursor: int) -> tuple[int, int]:
     return u16le(data, cursor), cursor + 2
 
 
-def parse_atlas(name: str, chunk0: bytes, chunk_index: int = 0) -> Atlas:
+def _read_sprite_pool(
+    table_chunk: bytes,
+    cursor: int,
+    frame_count: int,
+    external_chunks: list[tuple[int, bytes]] | None,
+) -> tuple[list[int], list[int], list[int], bytes]:
+    lengths: list[int] = []
+    sprite_data_offsets: list[int] = []
+    total = 0
+    scan = cursor
+    for _ in range(frame_count):
+        size = u16le(table_chunk, scan)
+        scan += 2
+        lengths.append(size)
+        sprite_data_offsets.append(total)
+        total += size
+
+    pools: list[tuple[int, bytes]] = [(0, table_chunk[scan:])]
+    if external_chunks:
+        pools.extend(external_chunks)
+
+    sprite_buf = bytearray(total)
+    sprite_chunk_indices: list[int] = [-1] * frame_count
+    sprite_chunk_offsets: list[int] = [0] * frame_count
+
+    global_pool_cursor = 0
+    frame_cursor = 0
+    pool_idx = 0
+    pool_local_cursor = 0
+
+    while frame_cursor < frame_count and pool_idx < len(pools):
+        pool_chunk_index, pool = pools[pool_idx]
+        remaining_pool = len(pool) - pool_local_cursor
+        if remaining_pool <= 0:
+            pool_idx += 1
+            pool_local_cursor = 0
+            continue
+
+        frame_size = lengths[frame_cursor]
+        if frame_size == 0:
+            frame_cursor += 1
+            continue
+        if frame_size > remaining_pool:
+            take = remaining_pool
+        else:
+            take = frame_size
+
+        src_start = pool_local_cursor
+        src_end = src_start + take
+        dst_start = sprite_data_offsets[frame_cursor]
+        dst_end = dst_start + take
+        sprite_buf[dst_start:dst_end] = pool[src_start:src_end]
+        sprite_chunk_indices[frame_cursor] = pool_chunk_index
+        sprite_chunk_offsets[frame_cursor] = src_start
+
+        pool_local_cursor += take
+        global_pool_cursor += take
+        if take == frame_size:
+            frame_cursor += 1
+        else:
+            lengths[frame_cursor] = frame_size - take
+            sprite_data_offsets[frame_cursor] += take
+
+    return sprite_data_offsets, sprite_chunk_indices, sprite_chunk_offsets, bytes(sprite_buf)
+
+
+def parse_atlas(
+    name: str,
+    chunk0: bytes,
+    chunk_index: int = 0,
+    external_chunks: list[tuple[int, bytes]] | None = None,
+) -> Atlas:
     data = chunk0
     cursor = 2  # static marker/unused in current assets
     flags = u32le(data, cursor)
@@ -365,24 +449,18 @@ def parse_atlas(name: str, chunk0: bytes, chunk_index: int = 0) -> Atlas:
     pixel_format, cursor = _read_u16(data, cursor)
 
     sprite_data_offsets: list[int] = []
+    sprite_chunk_indices: list[int] = []
+    sprite_chunk_offsets: list[int] = []
+    sprite_lengths: list[int] = []
     sprite_data = b''
     if frame_count > 0:
-        lengths = []
-        scan = cursor
-        total = 0
-        for _ in range(frame_count):
-            size = u16le(data, scan)
-            scan += 2
-            sprite_data_offsets.append(total)
-            total += size
-            lengths.append(size)
-        sprite_buf = bytearray(total)
-        for frame_index, size in enumerate(lengths):
-            chunk = data[cursor:cursor + size]
-            cursor += size
-            start = sprite_data_offsets[frame_index]
-            sprite_buf[start:start + size] = chunk
-        sprite_data = bytes(sprite_buf)
+        sprite_lengths = [u16le(data, cursor + frame_idx * 2) for frame_idx in range(frame_count)]
+        sprite_data_offsets, sprite_chunk_indices, sprite_chunk_offsets, sprite_data = _read_sprite_pool(
+            data,
+            cursor,
+            frame_count,
+            external_chunks,
+        )
 
     return Atlas(
         name=name,
@@ -398,6 +476,9 @@ def parse_atlas(name: str, chunk0: bytes, chunk_index: int = 0) -> Atlas:
         palette_size=palette_size,
         pixel_format=pixel_format,
         sprite_data_offsets=sprite_data_offsets,
+        sprite_chunk_indices=sprite_chunk_indices,
+        sprite_chunk_offsets=sprite_chunk_offsets,
+        sprite_lengths=sprite_lengths,
         sprite_data=sprite_data,
         has_alpha=has_alpha,
     )
