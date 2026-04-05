@@ -209,6 +209,30 @@ def build_chapter_mission_matrix(
             return ''
         return candidate.read_text(encoding='utf-8', errors='ignore')
 
+    def _parse_audio_ref(path_value: Any, expected_suffix: str | None = None) -> dict[str, Any] | None:
+        if not isinstance(path_value, str) or not path_value:
+            return None
+
+        path_obj = Path(path_value)
+        parts = path_obj.parts
+        if len(parts) < 4:
+            return None
+        if parts[0] != 'extracted' or parts[1] != 'audio':
+            return None
+
+        container = parts[2]
+        chunk_name = parts[3]
+        chunk_path = Path(chunk_name)
+        if expected_suffix is not None and chunk_path.suffix.lower() != expected_suffix.lower():
+            return None
+
+        try:
+            chunk_index = int(chunk_path.stem)
+        except (TypeError, ValueError):
+            return None
+
+        return {'container': container, 'chunk_index': chunk_index}
+
     rows: list[dict[str, Any]] = []
     mission_links = script_report.get('m9', {}).get('chapter_mission_links', {}).get('mission_links', [])
     text_chunks = text_report.get('chunks', [])
@@ -235,14 +259,14 @@ def build_chapter_mission_matrix(
 
         audio_refs: list[dict[str, Any]] = []
         midi_rows = [
-            {'container': path.split('/')[2], 'chunk_index': int(path.split('/')[-1].split('.')[0])}
+            ref
             for path in audio_report.get('midi', [])
-            if path.count('/') >= 2 and path.split('/')[-1].endswith('.mid')
+            if (ref := _parse_audio_ref(path, expected_suffix='.mid')) is not None
         ]
         raw_rows = [
-            {'container': item['path'].split('/')[2], 'chunk_index': int(item['path'].split('/')[-1].split('.')[0])}
+            ref
             for item in audio_report.get('raw_audio', [])
-            if isinstance(item, dict) and item.get('path') and item['path'].count('/') >= 2
+            if isinstance(item, dict) and (ref := _parse_audio_ref(item.get('path'))) is not None
         ]
         audio_refs.extend(_partition(midi_rows, chapter))
         audio_refs.extend(_partition(raw_rows, chapter))
