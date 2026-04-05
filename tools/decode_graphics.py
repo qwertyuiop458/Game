@@ -272,6 +272,7 @@ def _build_sprite_model(
 def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     exported_frame_ids = {payload.frame_index for payload in sprite.payloads if payload.png_path}
     frame_rows = [asdict(frame) for frame in sprite.frames if frame.frame_id in exported_frame_ids]
+    # Keep the skipped frame manifest schema aligned with frames.json skipped_frames entries.
     skipped_rows = [
         {
             'frame': payload.frame_index,
