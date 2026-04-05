@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import math
 import re
@@ -70,165 +71,24 @@ def parse_tile_chunk(chunk: bytes) -> dict[str, Any]:
     }
 
 
-def _partition_even(items: list[Any], chapter: int, chapter_count: int) -> list[Any]:
-    if not items:
-        return []
-    block = max(1, (len(items) + max(1, chapter_count) - 1) // max(1, chapter_count))
-    start = chapter * block
-    end = min(len(items), start + block)
-    if start >= len(items):
-        return []
-    return items[start:end]
+def _write_grid_csv(path: Path, values: list[int], width: int, height: int, field_name: str) -> None:
+    ensure_dir(path.parent)
+    with path.open('w', encoding='utf-8', newline='') as fh:
+        writer = csv.DictWriter(fh, fieldnames=['index', 'x', 'y', field_name])
+        writer.writeheader()
+        for index, value in enumerate(values):
+            x = index % width if width else 0
+            y = index // width if width else 0
+            writer.writerow({'index': index, 'x': x, 'y': y, field_name: value})
 
 
-def _collect_story_markers(output: Path, text_report: dict[str, Any] | None) -> list[str]:
-    if not text_report:
-        return []
-    markers: list[str] = []
-    seen: set[str] = set()
-    keywords = (
-        'glt', 'gtv', 'телест', 'центр', 'бар', 'озер', 'лес', 'лаборатор',
-        'кладбищ', 'пожар', 'зоопарк', 'секрет', 'ротванг', 'улиц',
-    )
-    for chunk in text_report.get('chunks', []):
-        rel = chunk.get('segment_guess_path')
-        if not rel:
-            continue
-        path = output / rel
-        if not path.exists():
-            continue
-        data = json.loads(path.read_text(encoding='utf-8'))
-        for item in data.get('strings', []):
-            text = re.sub(r'\s+', ' ', item.get('text', '')).strip()
-            lowered = text.lower()
-            if len(text) < 8:
-                continue
-            if not any(keyword in lowered for keyword in keywords):
-                continue
-            if text not in seen:
-                seen.add(text)
-                markers.append(text)
-    return markers
-
-
-def build_chapter_mission_matrix(
-    project: JarProject,
-    output: Path,
-    maps_report: dict[str, Any],
-    script_report: dict[str, Any],
-    audio_report: dict[str, Any],
-    text_report: dict[str, Any] | None = None,
-) -> list[dict[str, Any]]:
-    chapter_indices = sorted(
-        int(name.split('_')[1])
-        for name in maps_report
-        if name.startswith('m6_') and name.split('_')[1].isdigit()
-    )
-    if not chapter_indices:
-        chapter_indices = list(range(6))
-    chapter_count = len(chapter_indices)
-
-    graphics_packs = [name for name in ('m3_0', 'm4_0', 'm11_0', 'm11_1') if name in project.containers]
-    m8_count = len(project.containers['m8'].payloads) if 'm8' in project.containers else 0
-    m9_payloads = project.containers['m9'].payloads if 'm9' in project.containers else []
-
-    midi_assets = [Path(path).stem for path in audio_report.get('midi', [])]
-    raw_assets = [Path(item['path']).stem for item in audio_report.get('raw_audio', [])]
-    story_markers = _collect_story_markers(output, text_report)
-
-    chapter_story_keywords = {
-        0: ('glt', 'телест', 'центр', 'вост', 'gltцентр'),
-        1: ('бар', 'склад', 'улиц', 'джо'),
-        2: ('озер', 'лес', 'лагер'),
-        3: ('лаборатор', 'кладбищ', 'ротванг'),
-        4: ('пожар', 'зоопарк'),
-        5: ('секрет', 'финал', 'ротванг'),
-    }
-
-    rows: list[dict[str, Any]] = []
-    for chapter in chapter_indices:
-        map_pack = f'm6_{chapter}'
-        map_count = maps_report.get(map_pack, {}).get('map_count', 0)
-        m8_ref = f'm8#{chapter:02d}' if chapter < m8_count else None
-        m9_chunk = 10 + chapter
-        m9_ref = f'm9#{m9_chunk:02d}' if m9_chunk < len(m9_payloads) else None
-
-        enemy_ids: list[int] = []
-        if m9_ref:
-            parsed = parse_script_chunk_semantic(m9_payloads[m9_chunk])
-            for command in parsed.get('commands', []):
-                for placement in command.get('object_placements', []):
-                    object_id = placement.get('object_id')
-                    if isinstance(object_id, int):
-                        enemy_ids.append(object_id)
-        unique_enemy_ids = sorted(set(enemy_ids))
-        enemy_label = (
-            ', '.join(f'obj#{value}' for value in unique_enemy_ids[:6])
-            if unique_enemy_ids else
-            'не выделены (нет явных object_placements в m9)'
-        )
-
-        chapter_markers = []
-        for marker in story_markers:
-            lowered = marker.lower()
-            if any(keyword in lowered for keyword in chapter_story_keywords.get(chapter, ())):
-                chapter_markers.append(marker)
-        if not chapter_markers:
-            chapter_markers = _partition_even(story_markers, chapter, chapter_count)
-
-        mission = chapter_markers[0] if chapter_markers else f'Chapter {chapter + 1}'
-        key_story = chapter_markers[:3] if chapter_markers else ['(нет явных маркеров в t0)']
-
-        rows.append({
-            'chapter': chapter,
-            'mission': mission,
-            'map pack': {'id': map_pack, 'map_count': map_count, 'm8_link': m8_ref},
-            'graphics pack': graphics_packs,
-            'audio assets': {
-                'midi': [f'm13:{name}' for name in _partition_even(midi_assets, chapter, chapter_count)],
-                'raw': [f'm13:{name}' for name in _partition_even(raw_assets, chapter, chapter_count)],
-            },
-            'key enemies': enemy_label,
-            'key story events': key_story,
-            'sources': {
-                'm9_script': m9_ref,
-                'm8_mission': m8_ref,
-                'm6_map_pack': map_pack,
-                'graphics': graphics_packs,
-                'audio': ['m13_1', 'm13_2'],
-                't0_chunks': [chunk['chunk_index'] for chunk in (text_report or {}).get('chunks', [])],
-            },
-        })
-
-    meta_dir = output / 'extracted' / 'meta'
-    ensure_dir(meta_dir)
-    json_path = meta_dir / 'chapter_mission_matrix.json'
-    md_path = meta_dir / 'chapter_mission_matrix.md'
-    write_json(json_path, rows)
-
-    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'key enemies', 'key story events']
-    lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
-    for row in rows:
-        map_col = f"{row['map pack']['id']} ({row['map pack']['map_count']} maps, m8={row['map pack']['m8_link'] or '-'})"
-        graphics_col = ', '.join(row['graphics pack']) if row['graphics pack'] else '-'
-        audio_col = (
-            'MIDI: ' + (', '.join(row['audio assets']['midi']) or '-') + '<br>'
-            + 'RAW: ' + (', '.join(row['audio assets']['raw']) or '-')
-        )
-        story_col = '<br>'.join(row['key story events']) if row['key story events'] else '-'
-        lines.append(
-            '| ' + ' | '.join([
-                str(row['chapter']),
-                str(row['mission']).replace('\n', ' '),
-                map_col,
-                graphics_col,
-                audio_col,
-                str(row['key enemies']),
-                story_col.replace('\n', ' '),
-            ]) + ' |'
-        )
-    md_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
-    return rows
+def _write_rows_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    ensure_dir(path.parent)
+    with path.open('w', encoding='utf-8', newline='') as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, '') for name in fieldnames})
 
 
 def build_final_table(project: JarProject, output: Path, maps_report: dict, script_report: dict, audio_report: dict, text_report: dict) -> list[dict[str, Any]]:
@@ -278,12 +138,19 @@ def decode_maps(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
     maps_dir = output / 'extracted' / 'maps'
+    tiles_dir = output / 'extracted' / 'tiles'
+    meta_dir = output / 'extracted' / 'meta'
     ensure_dir(maps_dir)
+    ensure_dir(tiles_dir)
+    ensure_dir(meta_dir)
     report: dict[str, Any] = {}
+    level_manifest_entries: list[dict[str, Any]] = []
+    m6_chunk_manifest: dict[str, list[dict[str, Any]]] = {}
 
     for name in [f'm6_{index}' for index in range(6) if f'm6_{index}' in project.containers]:
         container = project.containers[name]
         entries = []
+        m6_chunk_manifest[name] = []
         for idx, chunk in enumerate(container.payloads):
             if idx % 2 == 1:
                 continue
@@ -294,16 +161,65 @@ def decode_maps(jar: Path, output: Path) -> dict:
             preview = maps_dir / name / f'{idx:02d}.png'
             write_rgba_png(preview, width, height, rgba)
             sidecar = container.payloads[idx + 1] if idx + 1 < len(container.payloads) else b''
+            collision_values = list(sidecar)
+            tile_base = f'{idx:02d}_tile'
+            collision_base = f'{idx:02d}_collision'
+
+            tile_json = tiles_dir / name / f'{tile_base}.json'
+            tile_csv = tiles_dir / name / f'{tile_base}.csv'
+            collision_json = maps_dir / name / f'{collision_base}.json'
+            collision_csv = maps_dir / name / f'{collision_base}.csv'
+
+            tile_payload = {
+                'container': name,
+                'chunk_index': idx,
+                'kind': 'tile_layer',
+                'width': width,
+                'height': height,
+                'cell_count': parsed['cells'],
+                'skip': parsed['skip'],
+                'tile_range': parsed['tile_range'],
+                'nonzero_cells': parsed['nonzero_cells'],
+                'values': parsed['values'],
+            }
+            collision_payload = {
+                'container': name,
+                'chunk_index': idx + 1,
+                'paired_tile_chunk_index': idx,
+                'kind': 'collision_layer',
+                'width': width,
+                'height': height,
+                'cell_count': len(collision_values),
+                'values': collision_values,
+            }
+            write_json(tile_json, tile_payload)
+            _write_grid_csv(tile_csv, parsed['values'], width, height, 'tile_id')
+            write_json(collision_json, collision_payload)
+            _write_grid_csv(collision_csv, collision_values, width, height, 'collision')
+
             meta = {
                 'container': name,
                 'chunk_index': idx,
                 'preview_png': str(preview.relative_to(output)),
-                'collision_layer': list(sidecar),
+                'tile_json': str(tile_json.relative_to(output)),
+                'tile_csv': str(tile_csv.relative_to(output)),
+                'collision_json': str(collision_json.relative_to(output)),
+                'collision_csv': str(collision_csv.relative_to(output)),
+                'collision_layer_preview': collision_values[:128],
                 **{k: v for k, v in parsed.items() if k != 'values'},
                 'tile_preview': parsed['values'][:128],
             }
             write_json(maps_dir / name / f'{idx:02d}.json', meta)
             entries.append(meta)
+            m6_chunk_manifest[name].append({
+                'tile_chunk_index': idx,
+                'collision_chunk_index': idx + 1 if idx + 1 < len(container.payloads) else None,
+                'tile_json': str(tile_json.relative_to(output)),
+                'tile_csv': str(tile_csv.relative_to(output)),
+                'collision_json': str(collision_json.relative_to(output)),
+                'collision_csv': str(collision_csv.relative_to(output)),
+                'preview_png': str(preview.relative_to(output)),
+            })
         report[name] = {'map_count': len(entries), 'maps': entries}
 
     docs_dir = output / 'docs' / 'reverse_engineering'
@@ -343,11 +259,86 @@ def decode_maps(jar: Path, output: Path) -> dict:
 
             semantic_levels = build_semantic_level_exports(output, table_chunks, semantic_rows)
             opcode_coverage = build_opcode_coverage(semantic_rows)
+            level_rows: list[dict[str, Any]] = []
+            for level_entry in semantic_levels.get('levels', []):
+                level_path = output / level_entry['path']
+                if not level_path.exists():
+                    continue
+                level_payload = json.loads(level_path.read_text(encoding='utf-8'))
+                level_index = level_payload.get('level_index', 0)
+                trace = level_payload.get('trace', {})
+                chapter = trace.get('chapter', 0)
+                map_pack = trace.get('map_pack_name', f'm6_{chapter}')
+                map_subchunk = trace.get('map_subchunk', 0)
+                object_rows = [
+                    {
+                        'level_index': level_index,
+                        'object_order': obj_index,
+                        'object_id': obj.get('object_id'),
+                        'x': obj.get('x'),
+                        'y': obj.get('y'),
+                    }
+                    for obj_index, obj in enumerate(level_payload.get('objects', []))
+                ]
+                trigger_rows = [
+                    {
+                        'level_index': level_index,
+                        'trigger_order': trg_index,
+                        'trigger_id': trg.get('trigger_id'),
+                        'event_code': trg.get('event_code'),
+                    }
+                    for trg_index, trg in enumerate(level_payload.get('triggers', []))
+                ]
+                objects_json = maps_dir / f'level_{level_index:02d}_objects.json'
+                objects_csv = maps_dir / f'level_{level_index:02d}_objects.csv'
+                triggers_json = maps_dir / f'level_{level_index:02d}_triggers.json'
+                triggers_csv = maps_dir / f'level_{level_index:02d}_triggers.csv'
+                write_json(objects_json, {'level_index': level_index, 'objects': object_rows})
+                write_json(triggers_json, {'level_index': level_index, 'triggers': trigger_rows})
+                _write_rows_csv(objects_csv, object_rows, ['level_index', 'object_order', 'object_id', 'x', 'y'])
+                _write_rows_csv(triggers_csv, trigger_rows, ['level_index', 'trigger_order', 'trigger_id', 'event_code'])
+
+                level_export = {
+                    'level_index': level_index,
+                    'tile_layers': level_payload.get('tile_layers', []),
+                    'collision_layers': level_payload.get('collision_layers', []),
+                    'triggers': level_payload.get('triggers', []),
+                    'objects': level_payload.get('objects', []),
+                    'trace': trace,
+                    'source_chunks': {
+                        'm9_script_chunk': trace.get('script_chunk'),
+                        'm9_table_chunk': 0,
+                        'm8_subchunk_index': sorted({link.get('subchunk_index') for link in level_payload.get('command_links', []) if link.get('target') == 'm8' and link.get('subchunk_index') is not None}),
+                        'm6_pack': map_pack,
+                        'm6_tile_chunk_index': map_subchunk if map_subchunk is not None else None,
+                        'm6_collision_chunk_index': (map_subchunk + 1) if isinstance(map_subchunk, int) else None,
+                    },
+                    'objects_json': str(objects_json.relative_to(output)),
+                    'objects_csv': str(objects_csv.relative_to(output)),
+                    'triggers_json': str(triggers_json.relative_to(output)),
+                    'triggers_csv': str(triggers_csv.relative_to(output)),
+                }
+                write_json(maps_dir / f'level_{level_index:02d}.json', level_export)
+                level_rows.append(level_export)
+                level_manifest_entries.append({
+                    'level_index': level_index,
+                    'map_pack': map_pack,
+                    'source_chunks': level_export['source_chunks'],
+                    'level_json': str((maps_dir / f'level_{level_index:02d}.json').relative_to(output)),
+                })
+
             scripts['m9'] = {
                 **table_chunks,
                 'chunk10_plus_scripts': script_packs,
                 'semantic_levels': semantic_levels,
                 'opcode_coverage': opcode_coverage,
+                'level_exports': [
+                    {
+                        'level_index': row['level_index'],
+                        'path': str((maps_dir / f'level_{row["level_index"]:02d}.json').relative_to(output)),
+                    }
+                    for row in level_rows
+                ],
             }
         else:
             chunks = []
@@ -359,6 +350,12 @@ def decode_maps(jar: Path, output: Path) -> dict:
             scripts['m10'] = {'chapter_chunks': chunks}
 
     write_json(maps_dir / 'maps_index.json', report)
+    write_json(meta_dir / 'maps_manifest.json', {
+        'version': 1,
+        'generated_by': 'tools.decode_maps',
+        'm6_chunk_manifest': m6_chunk_manifest,
+        'levels': sorted(level_manifest_entries, key=lambda row: row['level_index']),
+    })
     write_json(output / 'docs' / 'reverse_engineering' / 'scripts_index.json', scripts)
     return {'maps': report, 'scripts': scripts}
 
