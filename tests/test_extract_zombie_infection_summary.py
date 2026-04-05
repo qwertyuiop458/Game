@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tools.extract_zombie_infection import run_extractor
+from tools.extract_zombie_infection import SUMMARY_SCHEMA_VERSION, run_extractor
 
 
 def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_path: Path) -> None:
@@ -62,6 +62,7 @@ def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_pat
 
     summary = run_extractor(jar, output)
     container_quality = summary['container_quality']
+    assert summary['summary_schema_version'] == SUMMARY_SCHEMA_VERSION
     assert summary['audio_stats'] == {'valid_midi': 0, 'invalid_midi': 0, 'raw_audio': 0}
 
     assert container_quality['ok_container'] == {
@@ -82,6 +83,7 @@ def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_pat
     }
 
     written_summary = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
+    assert written_summary['summary_schema_version'] == SUMMARY_SCHEMA_VERSION
     assert written_summary['container_quality'] == container_quality
     assert written_summary['audio_stats'] == summary['audio_stats']
 

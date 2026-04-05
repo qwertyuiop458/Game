@@ -20,6 +20,45 @@ from tools.decode_text_t0 import ENCODING_CHAIN, decode_text
 from tools.linker import build_chapter_matrix
 from tools.parse_packs import parse_packs
 
+SUMMARY_SCHEMA_VERSION = '1.0.0'
+SUMMARY_REQUIRED_KEYS = frozenset({
+    'summary_schema_version',
+    'jar',
+    'containers',
+    'container_quality',
+    'text',
+    'audio',
+    'audio_stats',
+    'audio_validation_summary',
+    'maps',
+    'scripts',
+    'map_mismatch_summary',
+    'maps_validation_passed',
+    'maps_validation_failed',
+    'audio_coverage',
+    'graphics',
+    'ui',
+    'final_table_rows',
+    'chapter_mission_matrix_rows',
+    'chapter_matrix_rows',
+    'chapter_matrix_cross_check',
+    'linker_conflicts_summary',
+})
+
+
+def is_summary_backward_compatible(summary: dict[str, Any], *, supported_major: int = 1) -> bool:
+    version = summary.get('summary_schema_version')
+    if not isinstance(version, str):
+        return False
+
+    version_parts = version.split('.')
+    if len(version_parts) != 3 or not all(part.isdigit() for part in version_parts):
+        return False
+    major = int(version_parts[0])
+    if major != supported_major:
+        return False
+    return SUMMARY_REQUIRED_KEYS.issubset(summary.keys())
+
 
 def _to_non_negative_int(value: Any, default: int = 0) -> int:
     try:
@@ -251,6 +290,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
 
         container_quality[name] = details
     summary = {
+        'summary_schema_version': SUMMARY_SCHEMA_VERSION,
         'jar': str(jar),
         'containers': chunks,
         'container_quality': container_quality,

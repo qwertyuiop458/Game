@@ -223,6 +223,39 @@ JSON-описание содержит, например:
 - `docs/reverse_engineering/` — JSON/markdown-заметки и итоговая таблица;
 - `summary.json` — общая карта результатов.
 
+### `summary.json` как API для аналитики
+
+`summary.json` закреплён как versioned API-контракт для консьюмеров данных (аналитика/дашборды/quality checks), а не как «временный внутренний формат».
+
+Базовые правила чтения:
+
+1. Сначала проверять `summary_schema_version` (semver).
+2. Проверять поддерживаемый `MAJOR` (для текущего контракта: `1.x`).
+3. Требовать обязательные ключи и игнорировать неизвестные дополнительные поля.
+
+Минимальный пример чтения:
+
+```python
+import json
+from pathlib import Path
+
+summary = json.loads(Path(".artifacts/extractor_out/summary.json").read_text(encoding="utf-8"))
+version = summary["summary_schema_version"]  # например: "1.0.0"
+major = int(version.split(".", 1)[0])
+if major != 1:
+    raise RuntimeError(f"Неподдерживаемая major-версия схемы: {version}")
+
+metrics = {
+    "audio_coverage_percent": summary["audio_coverage"]["coverage_percent"],
+    "maps_validation_failed": summary["maps_validation_failed"],
+    "chapter_rows": summary["chapter_matrix_rows"],
+}
+print(metrics)
+```
+
+Полный список обязательных полей, инварианты и политика breaking/deprecation:
+[`docs/reverse_engineering/summary_schema.md`](reverse_engineering/summary_schema.md).
+
 ## Почему результаты теперь не коммитятся
 
 Теперь результаты экстрактора пишутся по умолчанию в `.artifacts/extractor_out/`, а сама папка добавлена в `.gitignore`.
