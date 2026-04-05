@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import math
 import zlib
 from collections import Counter
 from pathlib import Path
@@ -82,17 +84,40 @@ def build_chunk_signature(chunk: bytes, head_size: int = 24, top_bytes: int = 8)
     }
 
 
+def detect_chunk_format(chunk: bytes) -> tuple[str, bytes]:
+    if b'MThd' in chunk:
+        start = chunk.index(b'MThd')
+        return 'midi', chunk[start:]
+    return 'raw', chunk
+
+
+def _load_unsupported_registry(path: Path) -> list[dict[str, str | int]]:
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding='utf-8'))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(payload, list):
+        return []
+    return [item for item in payload if isinstance(item, dict)]
+
+
 def decode_audio(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
     audio_dir = output / 'extracted' / 'audio'
     ensure_dir(audio_dir)
+    unsupported_path = audio_dir / 'unsupported_m13_signatures.json'
+    unsupported_registry = _load_unsupported_registry(unsupported_path)
+    seen_unsupported = {str(item.get('signature_hex')) for item in unsupported_registry if item.get('signature_hex')}
     signature_registry: list[dict[str, str | int]] = []
     out = {
         'midi': [],
         'raw_audio': [],
         'invalid_audio': [],
         'signature_registry': str((audio_dir / 'signatures.json').relative_to(output)),
+        'unsupported_signature_registry': str(unsupported_path.relative_to(output)),
         'stats': {'valid': 0, 'invalid': 0, 'raw': 0},
     }
     for name in ('m13_1', 'm13_2'):
@@ -102,15 +127,12 @@ def decode_audio(jar: Path, output: Path) -> dict:
         pack_dir = audio_dir / name
         ensure_dir(pack_dir)
         for idx, chunk in enumerate(container.payloads):
-            coverage['total_chunks'] += 1
             if not chunk:
-                coverage['empty_chunks'] += 1
                 continue
             try:
-                if b'MThd' in chunk:
-                    start = chunk.index(b'MThd')
+                chunk_kind, payload = detect_chunk_format(chunk)
+                if chunk_kind == 'midi':
                     path = pack_dir / f'{idx:02d}.mid'
-                    payload = chunk[start:]
                     path.write_bytes(payload)
                     out['midi'].append(str(path.relative_to(output)))
                     out['stats']['valid'] += 1
@@ -126,8 +148,8 @@ def decode_audio(jar: Path, output: Path) -> dict:
                 else:
                     path = pack_dir / f'{idx:02d}.bin'
                     meta = pack_dir / f'{idx:02d}.json'
-                    path.write_bytes(chunk)
-                    write_json(meta, analyse_audio_blob(chunk))
+                    path.write_bytes(payload)
+                    write_json(meta, analyse_audio_blob(payload))
                     out['raw_audio'].append({'path': str(path.relative_to(output)), 'meta': str(meta.relative_to(output))})
                     out['stats']['valid'] += 1
                     out['stats']['raw'] += 1
@@ -137,10 +159,21 @@ def decode_audio(jar: Path, output: Path) -> dict:
                         'kind': 'raw',
                         'path': str(path.relative_to(output)),
                         'meta': str(meta.relative_to(output)),
-                        'size': len(chunk),
-                        'crc32_hex': f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
-                        'sha1': hashlib.sha1(chunk).hexdigest(),
+                        'size': len(payload),
+                        'crc32_hex': f'{zlib.crc32(payload) & 0xFFFFFFFF:08x}',
+                        'sha1': hashlib.sha1(payload).hexdigest(),
                     })
+                    chunk_signature = build_chunk_signature(payload)
+                    signature_hex = str(chunk_signature['head_hex'])
+                    if signature_hex not in seen_unsupported:
+                        seen_unsupported.add(signature_hex)
+                        unsupported_registry.append({
+                            'signature_hex': signature_hex,
+                            'first_seen_pack': name,
+                            'chunk_index': idx,
+                            'length': len(payload),
+                            'notes': 'Unknown non-MIDI chunk format; stored as raw binary.',
+                        })
             except Exception as exc:
                 out['stats']['invalid'] += 1
                 out['invalid_audio'].append({
@@ -149,6 +182,7 @@ def decode_audio(jar: Path, output: Path) -> dict:
                     'error': str(exc),
                 })
     write_json(audio_dir / 'signatures.json', signature_registry)
+    write_json(unsupported_path, unsupported_registry)
     write_json(audio_dir / 'index.json', out)
     return out
 
