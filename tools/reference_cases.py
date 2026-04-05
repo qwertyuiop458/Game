@@ -218,6 +218,27 @@ def verify_reference_cases(base_dir: Path = DEFAULT_CASES_DIR) -> list[str]:
     return mismatches
 
 
+def collect_reference_case_updates(base_dir: Path = DEFAULT_CASES_DIR) -> list[dict[str, Any]]:
+    updates: list[dict[str, Any]] = []
+    for case in load_reference_cases(base_dir):
+        expected = json.loads(case.expected_metadata.read_text(encoding='utf-8'))
+        actual = _build_expected_case(case)
+        preview_bytes = _load_preview_png(case)
+        actual['preview']['png_sha256'] = _sha256_hex(preview_bytes)
+        if expected == actual:
+            continue
+        updates.append(
+            {
+                'case_id': case.case_id,
+                'expected_preview_hash': expected.get('preview', {}).get('rgba_sha256'),
+                'actual_preview_hash': actual.get('preview', {}).get('rgba_sha256'),
+                'expected_frame_count': expected.get('atlas', {}).get('frame_count'),
+                'actual_frame_count': actual.get('atlas', {}).get('frame_count'),
+            }
+        )
+    return updates
+
+
 def update_reference_cases(base_dir: Path = DEFAULT_CASES_DIR) -> None:
     for case in load_reference_cases(base_dir):
         table_blob = _load_bytes(case.table_chunk, case.table_chunk_hex)
@@ -251,6 +272,17 @@ def main() -> None:
 
     if args.update:
         if not args.confirm_update:
+            pending = collect_reference_case_updates(args.cases_dir)
+            if pending:
+                print('Reference updates require explicit review. Pending differences:')
+                for item in pending:
+                    print(
+                        f"- {item['case_id']}: frame_count {item['expected_frame_count']} -> "
+                        f"{item['actual_frame_count']}, rgba_sha256 {item['expected_preview_hash']} -> "
+                        f"{item['actual_preview_hash']}"
+                    )
+            else:
+                print('No reference changes detected, update confirmation is still required by policy.')
             raise SystemExit('Refusing to update reference cases without --confirm-update')
         update_reference_cases(args.cases_dir)
         print(f'Updated reference cases in {args.cases_dir}')
