@@ -8,6 +8,8 @@ Offline extractor for `240x320-rus-zombie-infection.jar`.
 python3 offline_extractor.py 240x320-rus-zombie-infection.jar
 ```
 
+Migration is complete: `offline_extractor.py` is now a thin compatibility wrapper over the modular pipeline in `tools/`.
+
 Equivalent modular entrypoints are available under `tools/`:
 
 ```bash
