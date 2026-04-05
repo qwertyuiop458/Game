@@ -17,19 +17,19 @@ OPCODE_MODEL: dict[int, dict[str, Any]] = {
     },
     100: {
         'mnemonic': 'conditional_branch_a',
-        'arg_types': ['meta6', 'pairs:u16'],
+        'arg_types': ['u8:condition_code', 'u8:m8_pack_index', 'u8:m8_subchunk_index', 'u8:lhs', 'u8:rhs', 'u8:reserved', 'pairs:u16'],
         'refs': ['m6_*', 'm8'],
         'category': 'control_flow',
     },
     101: {
         'mnemonic': 'conditional_branch_b',
-        'arg_types': ['meta6', 'pairs:u16'],
+        'arg_types': ['u8:condition_code', 'u8:m8_pack_index', 'u8:m8_subchunk_index', 'u8:lhs', 'u8:rhs', 'u8:reserved', 'pairs:u16'],
         'refs': ['m6_*', 'm8'],
         'category': 'control_flow',
     },
     102: {
         'mnemonic': 'trigger_block',
-        'arg_types': ['meta6', 'pairs:u16'],
+        'arg_types': ['u8:trigger_id', 'u8:event_code', 'u8:m8_subchunk_hint', 'u8:target_x', 'u8:target_y', 'u8:reserved', 'pairs:u16'],
         'refs': ['m6_*', 'm8'],
         'category': 'trigger',
     },
@@ -39,6 +39,12 @@ OPCODE_MODEL: dict[int, dict[str, Any]] = {
         'refs': [],
         'category': 'data_blob',
     },
+}
+
+COMMON_COMMAND_NAMES: dict[int, str] = {
+    100: 'conditional_branch_a',
+    101: 'conditional_branch_b',
+    102: 'trigger_block',
 }
 
 
@@ -116,6 +122,51 @@ def resolve_level_trace(level_index: int, m9_tables: dict[str, Any], chapter_cou
     )
 
 
+def _parse_common_command(opcode: int, meta: list[int], params: list[int]) -> dict[str, Any]:
+    m6_subchunk = params[0] % 255 if params else None
+    m8_pack_index = meta[1]
+    m8_subchunk_index = meta[2]
+
+    common_fields: dict[str, Any] = {
+        'condition_code': meta[0],
+        'm8_pack_index': m8_pack_index,
+        'm8_subchunk_index': m8_subchunk_index,
+        'lhs': meta[3],
+        'rhs': meta[4],
+        'reserved': meta[5],
+        'pair_count': len(params),
+        'param_pairs_u16': params,
+    }
+    if opcode == 102:
+        common_fields = {
+            'trigger_id': meta[0],
+            'event_code': meta[1],
+            'm8_subchunk_hint': meta[2],
+            'target_x': meta[3],
+            'target_y': meta[4],
+            'reserved': meta[5],
+            'pair_count': len(params),
+            'param_pairs_u16': params,
+        }
+
+    refs = {
+        'm8': {
+            'pack_index': m8_pack_index,
+            'subchunk_index': m8_subchunk_index,
+            'confidence': 0.92 if opcode in (100, 101) else 0.88,
+            'source': 'common_command_fields',
+        },
+        'm6': {
+            'pack': f'm6_{meta[0] % 6}',
+            'subchunk': m6_subchunk,
+            'confidence': 0.76 if m6_subchunk is not None else 0.35,
+            'source': 'params[0] when present',
+        },
+    }
+
+    return {'args': common_fields, 'refs': refs}
+
+
 def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> dict[str, Any]:
     map_refs = []
     object_placements = []
@@ -137,6 +188,8 @@ def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> di
     if len(params) >= 3:
         object_placements.append({'object_id': params[0], 'x': params[1], 'y': params[2]})
 
+    parsed_common = _parse_common_command(opcode, meta, params) if opcode in COMMON_COMMAND_NAMES else None
+
     return {
         'args': {
             'meta': {
@@ -149,7 +202,8 @@ def _semantic_for_generic(opcode: int, meta: list[int], params: list[int]) -> di
             },
             'params': params,
         },
-        'refs': {
+        'parsed_fields': parsed_common['args'] if parsed_common else None,
+        'refs': parsed_common['refs'] if parsed_common else {
             'm8': {'pack_index': meta[1], 'subchunk_index': meta[2]},
             'm6_candidate': {'pack': f'm6_{meta[0] % 6}', 'subchunk': params[0] if params else None},
         },
@@ -188,6 +242,12 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
         if opcode == 99 and cursor + 6 <= len(chunk):
             values = list(chunk[cursor:cursor + 6])
             cursor += 6
+            m8_ref = {
+                'pack_index': values[1],
+                'subchunk_index': values[2],
+                'confidence': 1.0,
+                'source': 'opcode_99_explicit',
+            }
             base['args'] = {
                 'channel': values[0],
                 'm8_pack_index': values[1],
@@ -196,7 +256,7 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
                 'flag_b': values[4],
                 'flag_c': values[5],
             }
-            base['refs'] = {'m8': {'pack_index': values[1], 'subchunk_index': values[2]}}
+            base['refs'] = {'m8': m8_ref}
             base['control_flow'] = {}
             base['triggers'] = []
             base['map_refs'] = []
@@ -209,7 +269,11 @@ def parse_script_chunk_semantic(chunk: bytes) -> dict[str, Any]:
             cursor += 1
             payload = list(chunk[cursor:cursor + size])
             cursor += size
-            base['args'] = {'size': size, 'payload_preview': payload[:16]}
+            base['args'] = {
+                'payload_size': size,
+                'payload_preview': payload[:16],
+                'payload_checksum16': sum(payload) % 65536,
+            }
             base['refs'] = {}
             base['control_flow'] = {}
             base['triggers'] = []

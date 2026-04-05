@@ -47,6 +47,18 @@ def test_semantic_parser_and_coverage() -> None:
     assert 42 in coverage['unknown_opcodes']
 
 
+def test_common_opcode_structures_have_named_fields_and_confidence() -> None:
+    # opcode 100 + meta(6) + pair_count(1) + one u16 pair
+    chunk = bytes([100, 7, 1, 2, 3, 4, 5, 1, 9, 0])
+    parsed = parse_script_chunk_semantic(chunk)
+    command = parsed['commands'][0]
+    assert command['parsed_fields']['condition_code'] == 7
+    assert command['parsed_fields']['m8_subchunk_index'] == 2
+    assert command['refs']['m8']['confidence'] >= 0.9
+    assert command['refs']['m6']['pack'] == 'm6_1'
+    assert command['refs']['m6']['subchunk'] == 9
+
+
 def test_semantic_level_export(tmp_path: Path) -> None:
     tables = {
         'chunk0_levels': {
