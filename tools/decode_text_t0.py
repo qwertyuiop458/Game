@@ -7,6 +7,15 @@ from tools.common import JarProject, ensure_dir, sanitize_text, u32le, write_jso
 
 
 ENCODING_CHAIN = ('utf-8', 'cp1251', 'latin-1')
+_NONSTANDARD_LINE_SEPARATORS = '\r\x0b\x0c\x1e\x85\u2028\u2029\u2026'
+
+
+def sanitize_decoded_text(decoded: str) -> str:
+    normalized = decoded.replace('\r\n', '\n').replace('\r', '\n')
+    for separator in _NONSTANDARD_LINE_SEPARATORS:
+        normalized = normalized.replace(separator, '\n')
+    normalized = normalized.replace('\ufffd', ' ')
+    return sanitize_text(normalized)
 
 
 def decode_chunk_with_fallback(chunk: bytes, forced_encoding: str | None = None) -> dict:
@@ -16,7 +25,7 @@ def decode_chunk_with_fallback(chunk: bytes, forced_encoding: str | None = None)
         decoded = chunk.decode(encoding, errors='replace')
         replacement_count = decoded.count('\ufffd')
         candidate = {
-            'decoded_text': sanitize_text(decoded),
+            'decoded_text': sanitize_decoded_text(decoded),
             'encoding_used': encoding,
             'replacement_stats': {
                 'replacement_count': replacement_count,
