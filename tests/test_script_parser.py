@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tools.script_parser import (
     build_opcode_coverage,
     build_semantic_level_exports,
@@ -9,6 +11,7 @@ from tools.script_parser import (
 )
 
 
+@pytest.mark.extractor
 def test_parse_m9_chunk_tables_split() -> None:
     payloads = [
         bytes([1, 2, 3, 4, 7, 8, 9, 10]),
@@ -21,6 +24,7 @@ def test_parse_m9_chunk_tables_split() -> None:
     assert parsed['chunk2_tables']['u16_values'] == [3, 4]
 
 
+@pytest.mark.extractor
 def test_trace_resolution_prefers_chunk0() -> None:
     tables = {
         'chunk0_levels': {
@@ -36,6 +40,7 @@ def test_trace_resolution_prefers_chunk0() -> None:
     assert trace.source == 'chunk0_levels'
 
 
+@pytest.mark.extractor
 def test_semantic_parser_and_coverage() -> None:
     # opcode 99 + 6 bytes; opcode 200 + size + payload; opcode 42 generic with 0 pairs
     chunk = bytes([99, 1, 2, 3, 4, 5, 6, 200, 2, 9, 8, 42, 0, 0, 0, 0, 0, 0, 0])
@@ -47,6 +52,7 @@ def test_semantic_parser_and_coverage() -> None:
     assert 42 in coverage['unknown_opcodes']
 
 
+@pytest.mark.extractor
 def test_common_opcode_structures_have_named_fields_and_confidence() -> None:
     # opcode 100 + meta(6) + pair_count(1) + one u16 pair
     chunk = bytes([100, 7, 1, 2, 3, 4, 5, 1, 9, 0])
@@ -60,6 +66,7 @@ def test_common_opcode_structures_have_named_fields_and_confidence() -> None:
     assert any(link['target'] == 'm8' for link in command['command_links'])
 
 
+@pytest.mark.extractor
 def test_semantic_level_export(tmp_path: Path) -> None:
     tables = {
         'chunk0_levels': {
