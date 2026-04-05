@@ -371,6 +371,11 @@ def decode_maps(jar: Path, output: Path) -> dict:
             collision_chunk_index = pair['collision_chunk_index']
             sidecar = container.payloads[collision_chunk_index] if isinstance(collision_chunk_index, int) else b''
             collision_values = list(sidecar)
+            collision_size_mismatch = len(collision_values) != parsed['cells']
+            if collision_size_mismatch:
+                collision_width, collision_height = factor_grid(len(collision_values))
+            else:
+                collision_width, collision_height = width, height
             tile_base = f'{idx:02d}_tile'
             collision_base = f'{idx:02d}_collision'
 
@@ -396,15 +401,18 @@ def decode_maps(jar: Path, output: Path) -> dict:
                 'chunk_index': collision_chunk_index,
                 'paired_tile_chunk_index': idx,
                 'kind': 'collision_layer',
-                'width': width,
-                'height': height,
+                'width': collision_width,
+                'height': collision_height,
                 'cell_count': len(collision_values),
+                'collision_size_mismatch': collision_size_mismatch,
+                'tile_cells': parsed['cells'],
+                'collision_cells': len(collision_values),
                 'values': collision_values,
             }
             write_json(tile_json, tile_payload)
             _write_grid_csv(tile_csv, parsed['values'], width, height, 'tile_id')
             write_json(collision_json, collision_payload)
-            _write_grid_csv(collision_csv, collision_values, width, height, 'collision')
+            _write_grid_csv(collision_csv, collision_values, collision_width, collision_height, 'collision')
 
             meta = {
                 'container': name,
@@ -415,6 +423,9 @@ def decode_maps(jar: Path, output: Path) -> dict:
                 'collision_json': str(collision_json.relative_to(output)),
                 'collision_csv': str(collision_csv.relative_to(output)),
                 'collision_layer_preview': collision_values[:128],
+                'collision_size_mismatch': collision_size_mismatch,
+                'tile_cells': parsed['cells'],
+                'collision_cells': len(collision_values),
                 **{k: v for k, v in parsed.items() if k != 'values'},
                 'tile_preview': parsed['values'][:128],
             }
