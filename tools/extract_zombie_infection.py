@@ -75,6 +75,14 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
     chunks = parse_packs(jar, output)
     text = decode_text(jar, output, strings_encoding=strings_encoding)
     audio = decode_audio(jar, output)
+    audio_counts = audio.get('counts')
+    if not isinstance(audio_counts, dict):
+        audio_counts = {}
+    audio_stats = {
+        'valid_midi': int(audio_counts.get('valid_midi', len(audio.get('midi', [])))),
+        'invalid_midi': int(audio_counts.get('invalid_midi', len(audio.get('invalid_midi', [])))),
+        'raw_audio': int(audio_counts.get('raw_audio', len(audio.get('raw_audio', [])))),
+    }
     maps_bundle = decode_maps(jar, output)
     graphics = decode_graphics(jar, output)
     ui = extract_ui_assets(project, output)
@@ -114,6 +122,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'container_quality': container_quality,
         'text': text,
         'audio': audio,
+        'audio_stats': audio_stats,
         'maps': maps_bundle['maps'],
         'scripts': maps_bundle['scripts'],
         'graphics': graphics,
@@ -122,6 +131,10 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'chapter_mission_matrix_rows': len(chapter_mission_matrix),
         'chapter_matrix_rows': len(chapter_matrix.get('chapters', [])),
         'chapter_matrix_cross_check': chapter_matrix.get('cross_check', {}),
+        'map_validation_summary': maps_bundle.get('mismatch_report', {}).get(
+            'counts',
+            {'info': 0, 'warning': 0, 'error': 0},
+        ),
     }
     write_json(output / 'summary.json', summary)
     return summary

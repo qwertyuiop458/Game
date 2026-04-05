@@ -48,3 +48,13 @@ def test_decode_maps_marks_collision_size_mismatch_and_uses_collision_grid(tmp_p
     assert rows[1]['index'] == '1'
     assert rows[1]['x'] == '0'
     assert rows[1]['y'] == '1'
+
+    mismatch_report = json.loads((output_dir / 'extracted' / 'maps' / 'mismatch_report.json').read_text(encoding='utf-8'))
+    assert set(mismatch_report) == {'total', 'counts', 'entries'}
+    assert mismatch_report['counts']['warning'] >= 1
+    assert any(
+        entry['check_name'] == 'grid_size_mismatch'
+        and entry['severity'] == 'warning'
+        and {'check_name', 'severity', 'entity_id', 'details'} <= set(entry)
+        for entry in mismatch_report['entries']
+    )

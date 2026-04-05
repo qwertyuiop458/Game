@@ -9,12 +9,76 @@ from pathlib import Path
 from tools.common import JarProject, ensure_dir, write_json
 
 
+def _u16be(data: bytes, offset: int) -> int:
+    return (data[offset] << 8) | data[offset + 1]
+
+
+def validate_midi_blob(blob: bytes) -> str | None:
+    if len(blob) < 14:
+        return 'midi_header_too_short'
+    if blob[:4] != b'MThd':
+        return 'missing_mthd_header'
+
+    header_len = int.from_bytes(blob[4:8], byteorder='big', signed=False)
+    if header_len != 6:
+        return f'invalid_mthd_length:{header_len}'
+
+    if len(blob) < 8 + header_len:
+        return 'truncated_mthd_payload'
+
+    track_count = _u16be(blob, 10)
+    if track_count <= 0:
+        return f'invalid_track_count:{track_count}'
+
+    mtrk_count = blob.count(b'MTrk')
+    if mtrk_count <= 0:
+        return 'missing_mtrk_chunk'
+
+    return None
+
+
 def analyse_audio_blob(chunk: bytes) -> dict:
     return {
         'size': len(chunk),
         'head_hex': chunk[:32].hex(),
         'nonzero_bytes': sum(1 for b in chunk if b),
         'top_bytes': Counter(chunk).most_common(8),
+    }
+
+
+def build_chunk_signature(chunk: bytes, head_size: int = 24, top_bytes: int = 8) -> dict:
+    size = len(chunk)
+    if size == 0:
+        return {
+            'key': 'empty:0',
+            'size': 0,
+            'head_hex': '',
+            'sha1': hashlib.sha1(chunk).hexdigest(),
+            'nonzero_ratio': 0.0,
+            'entropy': 0.0,
+            'top_bytes': [],
+        }
+    freq = Counter(chunk)
+    entropy = 0.0
+    for count in freq.values():
+        p = count / size
+        entropy -= p * math.log2(p)
+    head_hex = chunk[:head_size].hex()
+    top = freq.most_common(top_bytes)
+    nonzero_ratio = round(sum(1 for b in chunk if b) / size, 4)
+    key = (
+        f'len:{size}|head:{head_hex}|'
+        f'entropy:{entropy:.4f}|nonzero:{nonzero_ratio:.4f}|'
+        f'top:{",".join(f"{byte:02x}:{count}" for byte, count in top)}'
+    )
+    return {
+        'key': key,
+        'size': size,
+        'head_hex': head_hex,
+        'sha1': hashlib.sha1(chunk).hexdigest(),
+        'nonzero_ratio': nonzero_ratio,
+        'entropy': round(entropy, 4),
+        'top_bytes': [[byte, count] for byte, count in top],
     }
 
 
@@ -38,7 +102,9 @@ def decode_audio(jar: Path, output: Path) -> dict:
         pack_dir = audio_dir / name
         ensure_dir(pack_dir)
         for idx, chunk in enumerate(container.payloads):
+            coverage['total_chunks'] += 1
             if not chunk:
+                coverage['empty_chunks'] += 1
                 continue
             try:
                 if b'MThd' in chunk:
