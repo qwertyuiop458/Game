@@ -218,3 +218,30 @@ Workflow запускается по `workflow_dispatch`, а также на `pu
 Запуск "в любой момент" без `gh` и без нового commit:
 - оставь комментарий ` /run-apk ` в Issue или PR этого репозитория;
 - workflow `Run J2ME APK + JAR` стартует сразу по `issue_comment` trigger.
+
+### Запуск workflow только кодом из shell (без `gh`)
+
+Если в окружении есть `GH_TOKEN` с правами на Actions, можно запустить workflow напрямую через API:
+
+```bash
+export GH_TOKEN=<token>
+export REPO=<owner>/<repo>
+export REF=main
+export APK_SOURCE='https://.../j2me-loader.apk'
+export JAR_SOURCE='https://.../game.jar'
+export STRICT_MODE=true
+bash tools/ci/trigger_github_run.sh
+```
+
+Это полностью кодовый запуск `workflow_dispatch` без GitHub CLI.
+
+По умолчанию `tools/ci/trigger_github_run.sh` уже настроен на:
+- `REPO=qwertyuiop458/Game`
+- `REF=work`
+
+Достаточно передать только токен:
+
+```bash
+export GH_TOKEN=<token>
+bash tools/ci/trigger_github_run.sh
+```
