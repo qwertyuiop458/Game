@@ -78,7 +78,15 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
     graphics = decode_graphics(jar, output)
     ui = extract_ui_assets(project, output)
     final_table = build_final_table(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
-    chapter_mission_matrix = build_chapter_mission_matrix(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
+    chapter_mission_matrix = build_chapter_mission_matrix(
+        project,
+        output,
+        maps_bundle['maps'],
+        maps_bundle['scripts'],
+        graphics,
+        audio,
+        text,
+    )
     chapter_matrix = build_chapter_matrix(jar, output)
     container_quality = {
         name: {

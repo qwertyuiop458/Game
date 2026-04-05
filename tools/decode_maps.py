@@ -138,36 +138,152 @@ def build_chapter_mission_matrix(
     output: Path,
     maps_report: dict,
     script_report: dict,
+    graphics_report: dict,
     audio_report: dict,
     text_report: dict,
 ) -> list[dict[str, Any]]:
-    rows = []
+    def _validate_link(container: str, chunk_index: int | None = None) -> dict[str, Any]:
+        container_obj = project.containers.get(container)
+        if container_obj is None:
+            return {'container': container, 'chunk_index': chunk_index, 'valid': False, 'error': f'container {container} is missing'}
+        if chunk_index is None:
+            return {'container': container, 'chunk_index': None, 'valid': True}
+        if not (0 <= chunk_index < len(container_obj.payloads)):
+            return {
+                'container': container,
+                'chunk_index': chunk_index,
+                'valid': False,
+                'error': f'chunk {container}#{chunk_index:02d} is missing',
+            }
+        return {'container': container, 'chunk_index': chunk_index, 'valid': True}
+
+    def _partition(items: list[dict[str, Any]], chapter: int, chapter_count: int = 6) -> list[dict[str, Any]]:
+        if not items:
+            return []
+        block = max(1, (len(items) + chapter_count - 1) // chapter_count)
+        start = chapter * block
+        end = min(len(items), start + block)
+        if start >= len(items):
+            return []
+        return items[start:end]
+
+    def _extract_keywords(text_blob: str, keywords: list[str]) -> list[str]:
+        lowered = text_blob.lower()
+        found = []
+        for word in keywords:
+            if word in lowered:
+                found.append(word)
+        return found
+
+    def _text_blob(entry: dict[str, Any]) -> str:
+        rel = entry.get('reconstructed_path') or entry.get('path')
+        if not rel:
+            return ''
+        candidate = output / rel
+        if not candidate.exists():
+            return ''
+        return candidate.read_text(encoding='utf-8', errors='ignore')
+
+    rows: list[dict[str, Any]] = []
     mission_links = script_report.get('m9', {}).get('chapter_mission_links', {}).get('mission_links', [])
+    text_chunks = text_report.get('chunks', [])
+    graphics_packs = sorted(graphics_report.get('containers', {}).keys())
+    graphics_refs = [
+        {'container': pack_name, 'chunk_index': chunk.get('chunk')}
+        for pack_name, pack_payload in graphics_report.get('containers', {}).items()
+        for chunk in pack_payload.get('chunks', [])
+        if isinstance(chunk, dict) and isinstance(chunk.get('chunk'), int)
+    ]
     by_chapter = {chapter: [] for chapter in range(6)}
     for item in mission_links:
         by_chapter[item.get('chapter', 0) % 6].append(item)
 
     for chapter in range(6):
         map_pack = f'm6_{chapter}'
-        map_count = maps_report.get(map_pack, {}).get('map_count', 0)
         chapter_missions = sorted(by_chapter.get(chapter, []), key=lambda row: row.get('mission', 0))
+
+        if chapter_missions:
+            mission_ids = sorted({item.get('mission', chapter) for item in chapter_missions})
+            mission_label = ', '.join(f'#{mission}' for mission in mission_ids)
+        else:
+            mission_label = f'#{chapter}'
+
+        audio_refs: list[dict[str, Any]] = []
+        midi_rows = [
+            {'container': path.split('/')[2], 'chunk_index': int(path.split('/')[-1].split('.')[0])}
+            for path in audio_report.get('midi', [])
+            if path.count('/') >= 2 and path.split('/')[-1].endswith('.mid')
+        ]
+        raw_rows = [
+            {'container': item['path'].split('/')[2], 'chunk_index': int(item['path'].split('/')[-1].split('.')[0])}
+            for item in audio_report.get('raw_audio', [])
+            if isinstance(item, dict) and item.get('path') and item['path'].count('/') >= 2
+        ]
+        audio_refs.extend(_partition(midi_rows, chapter))
+        audio_refs.extend(_partition(raw_rows, chapter))
+
+        text_entry = text_chunks[chapter] if chapter < len(text_chunks) else (text_chunks[-1] if text_chunks else {})
+        text_blob = _text_blob(text_entry) if isinstance(text_entry, dict) else ''
+        enemy_terms = _extract_keywords(
+            text_blob,
+            ['zombie', 'zombies', 'mutant', 'mutants', 'soldier', 'dog', 'boss', 'ротванг', 'зомби', 'мутант', 'босс'],
+        )
+        story_terms = _extract_keywords(
+            text_blob,
+            ['lab', 'laboratory', 'tv', 'station', 'escape', 'final', 'fight', 'лаборатор', 'станц', 'побег', 'финал', 'бой'],
+        )
+
+        links = [
+            {'kind': 'map_pack', **_validate_link(map_pack, None)},
+            {'kind': 'text_chunk', **_validate_link('t0', text_entry.get('chunk_index') if isinstance(text_entry, dict) else None)},
+        ]
+        links.extend({'kind': 'graphics_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in graphics_refs)
+        links.extend({'kind': 'audio_chunk', **_validate_link(ref['container'], ref['chunk_index'])} for ref in audio_refs)
+        links.extend(
+            {'kind': 'script_chunk', **_validate_link('m9', mission.get('script_chunk'))}
+            for mission in chapter_missions
+            if mission.get('script_chunk') is not None
+        )
+        invalid_links = [link for link in links if not link.get('valid')]
+
         rows.append(
             {
                 'chapter': chapter,
-                'mission_index': chapter_missions[0]['mission'] if chapter_missions else chapter,
-                'map_pack': map_pack,
-                'map_count': map_count,
-                'script_pack': 'm9',
-                'script_chunk_index': chapter_missions[0]['script_chunk'] if chapter_missions else 10 + chapter,
-                'mission_count': len(chapter_missions),
-                'missions': chapter_missions,
-                'audio_pack': 'm13',
-                'text_pack': 't0',
+                'mission': mission_label,
+                'map pack': map_pack,
+                'graphics pack': ', '.join(graphics_packs) if graphics_packs else 'n/a',
+                'audio assets': [f"{ref['container']}#{ref['chunk_index']:02d}" for ref in audio_refs],
+                'key enemies': ', '.join(enemy_terms[:4]) if enemy_terms else 'n/a',
+                'key story events': ', '.join(story_terms[:4]) if story_terms else 'n/a',
+                'links': links,
+                'validation': {
+                    'all_links_valid': not invalid_links,
+                    'invalid_links': invalid_links,
+                },
             }
         )
 
-    matrix_path = output / 'docs' / 'reverse_engineering' / 'chapter_mission_matrix.json'
-    write_json(matrix_path, rows)
+    meta_dir = output / 'extracted' / 'meta'
+    ensure_dir(meta_dir)
+    write_json(meta_dir / 'chapter_mission_matrix.json', rows)
+
+    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'key enemies', 'key story events']
+    lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
+    for row in rows:
+        lines.append(
+            '| ' + ' | '.join(
+                [
+                    str(row['chapter']),
+                    str(row['mission']),
+                    str(row['map pack']),
+                    str(row['graphics pack']),
+                    ', '.join(row['audio assets']) or '-',
+                    str(row['key enemies']),
+                    str(row['key story events']),
+                ]
+            ) + ' |'
+        )
+    (meta_dir / 'chapter_mission_matrix.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return rows
 
 
