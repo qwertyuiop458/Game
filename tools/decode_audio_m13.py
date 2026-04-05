@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import math
 import zlib
 from collections import Counter
@@ -15,28 +14,40 @@ def _u16be(data: bytes, offset: int) -> int:
     return (data[offset] << 8) | data[offset + 1]
 
 
-def validate_midi_blob(blob: bytes) -> str | None:
+def validate_midi_blob(blob: bytes) -> dict[str, int | str]:
     if len(blob) < 14:
-        return 'midi_header_too_short'
+        return {'status': 'invalid', 'reason': 'midi_header_too_short'}
     if blob[:4] != b'MThd':
-        return 'missing_mthd_header'
+        return {'status': 'invalid', 'reason': 'missing_mthd_header'}
 
     header_len = int.from_bytes(blob[4:8], byteorder='big', signed=False)
     if header_len != 6:
-        return f'invalid_mthd_length:{header_len}'
+        return {'status': 'invalid', 'reason': f'invalid_mthd_length:{header_len}'}
 
     if len(blob) < 8 + header_len:
-        return 'truncated_mthd_payload'
+        return {'status': 'invalid', 'reason': 'truncated_mthd_payload'}
 
     track_count = _u16be(blob, 10)
     if track_count <= 0:
-        return f'invalid_track_count:{track_count}'
+        return {'status': 'invalid', 'reason': f'invalid_track_count:{track_count}'}
 
     mtrk_count = blob.count(b'MTrk')
     if mtrk_count <= 0:
-        return 'missing_mtrk_chunk'
+        return {'status': 'invalid', 'reason': 'missing_mtrk_chunk'}
+    if mtrk_count != track_count:
+        return {
+            'status': 'warning',
+            'reason': f'track_count_mismatch:declared={track_count},found={mtrk_count}',
+            'declared_tracks': track_count,
+            'found_tracks': mtrk_count,
+        }
 
-    return None
+    return {
+        'status': 'valid',
+        'reason': 'ok',
+        'declared_tracks': track_count,
+        'found_tracks': mtrk_count,
+    }
 
 
 def analyse_audio_blob(chunk: bytes) -> dict:
@@ -114,12 +125,18 @@ def decode_audio(jar: Path, output: Path) -> dict:
     signature_registry: list[dict[str, str | int]] = []
     out = {
         'midi': [],
+        'midi_validation': [],
         'raw_audio': [],
+        'midi_validation_report': str((audio_dir / 'midi_validation_report.json').relative_to(output)),
         'invalid_audio': [],
         'signature_registry': str((audio_dir / 'signatures.json').relative_to(output)),
         'unsupported_signature_registry': str(unsupported_path.relative_to(output)),
         'stats': {'valid': 0, 'invalid': 0, 'raw': 0},
+        'counts': {'valid_midi': 0, 'invalid_midi': 0, 'raw_audio': 0, 'warnings': 0},
+        'audio_coverage': {'total_tracks': 0, 'decoded_tracks': 0, 'coverage_percent': 0.0},
+        'midi_validation_summary': {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0},
     }
+    coverage = {'total_chunks': 0, 'empty_chunks': 0}
     for name in ('m13_1', 'm13_2'):
         container = project.containers.get(name)
         if not container:
@@ -135,7 +152,31 @@ def decode_audio(jar: Path, output: Path) -> dict:
                     path = pack_dir / f'{idx:02d}.mid'
                     path.write_bytes(payload)
                     out['midi'].append(str(path.relative_to(output)))
+                    midi_check = validate_midi_blob(payload)
+                    midi_validation_entry = {
+                        'container': name,
+                        'chunk_index': idx,
+                        'path': str(path.relative_to(output)),
+                        'status': str(midi_check['status']),
+                        'reason': str(midi_check['reason']),
+                    }
+                    if 'declared_tracks' in midi_check:
+                        midi_validation_entry['declared_tracks'] = int(midi_check['declared_tracks'])
+                    if 'found_tracks' in midi_check:
+                        midi_validation_entry['found_tracks'] = int(midi_check['found_tracks'])
+                    out['midi_validation'].append(midi_validation_entry)
                     out['stats']['valid'] += 1
+                    out['midi_validation_summary']['total'] += 1
+                    if midi_check['status'] == 'invalid':
+                        out['midi_validation_summary']['invalid'] += 1
+                        out['counts']['invalid_midi'] += 1
+                    elif midi_check['status'] == 'warning':
+                        out['midi_validation_summary']['warnings'] += 1
+                        out['counts']['warnings'] += 1
+                        out['counts']['valid_midi'] += 1
+                    else:
+                        out['midi_validation_summary']['valid'] += 1
+                        out['counts']['valid_midi'] += 1
                     signature_registry.append({
                         'container': name,
                         'chunk_index': idx,
@@ -153,6 +194,7 @@ def decode_audio(jar: Path, output: Path) -> dict:
                     out['raw_audio'].append({'path': str(path.relative_to(output)), 'meta': str(meta.relative_to(output))})
                     out['stats']['valid'] += 1
                     out['stats']['raw'] += 1
+                    out['counts']['raw_audio'] += 1
                     signature_registry.append({
                         'container': name,
                         'chunk_index': idx,
@@ -181,8 +223,15 @@ def decode_audio(jar: Path, output: Path) -> dict:
                     'chunk_index': idx,
                     'error': str(exc),
                 })
+    decoded_tracks = coverage['total_chunks'] - coverage['empty_chunks']
+    coverage_percent = 0.0 if coverage['total_chunks'] == 0 else round(decoded_tracks * 100.0 / coverage['total_chunks'], 2)
+    out['audio_coverage'] = {
+        'total_tracks': coverage['total_chunks'],
+        'decoded_tracks': decoded_tracks,
+        'coverage_percent': coverage_percent,
+    }
     write_json(audio_dir / 'signatures.json', signature_registry)
-    write_json(unsupported_path, unsupported_registry)
+    write_json(audio_dir / 'midi_validation_report.json', out['midi_validation_summary'])
     write_json(audio_dir / 'index.json', out)
     return out
 
