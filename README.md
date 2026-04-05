@@ -4,13 +4,22 @@ Offline extractor for `240x320-rus-zombie-infection.jar`.
 
 ## Usage
 
+Primary entrypoint (recommended):
+
 ```bash
-python3 offline_extractor.py 240x320-rus-zombie-infection.jar
+python3 -m tools.extract_zombie_infection 240x320-rus-zombie-infection.jar
 ```
 
-Migration is complete: `offline_extractor.py` is now a thin compatibility wrapper over the modular pipeline in `tools/`.
+Migration is complete: extraction logic lives in dedicated modules under `tools/`:
 
-Equivalent modular entrypoints are available under `tools/`.
+- `tools/parse_packs.py`
+- `tools/decode_text_t0.py`
+- `tools/decode_audio_m13.py`
+- `tools/decode_graphics.py`
+- `tools/decode_maps.py`
+- `tools/extract_zombie_infection.py` (orchestrator)
+
+`offline_extractor.py` is kept as a backward-compatible thin wrapper that calls the new orchestrator.
 
 ### New modular CLI
 
