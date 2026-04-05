@@ -72,7 +72,8 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
   - manifest: `.artifacts/extractor_out/extracted/sprites/m3_0/chunk_00/manifest.json`
   - research preview: `extracted/images/research/m3_0/chunk_00/preview_frame_000.md`
   - research raw: `extracted/images/research/m3_0/chunk_00/raw_frame_000.md`
-- **Confirmation status:** `unverified`
+- **Confirmation status:** `partially_confirmed`
+- **Validation notes:** `2026-04-05: проверены кадры 000/001/002 (preview+raw), пути в metadata.json/manifest.json/frames.json совпадают, offsets для выборки согласованы (chunk/data_offset: 0:0, -1:0, -1:0); открыта issue по симптомам empty PNG при non-empty raw на других кадрах пакета.`
 - **Критерий подтверждения/опровержения:**
   - подтверждение: минимум 3 кадра с совпадением preview/raw и монотонными offsets в `frames.json`
   - опровержение: систематический color noise или несовместимость `data_offset` с экспортированным `.bin`
@@ -102,7 +103,8 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
   - manifest: `.artifacts/extractor_out/extracted/sprites/m4_0/chunk_00/manifest.json`
   - research preview: `extracted/images/research/m4_0/chunk_00/preview_frame_000.md`
   - research raw: `extracted/images/research/m4_0/chunk_00/raw_frame_000.md`
-- **Confirmation status:** `unverified`
+- **Confirmation status:** `partially_confirmed`
+- **Validation notes:** `2026-04-05: проверены кадры 000/001/002 (preview+raw), сверены metadata.json/manifest.json/frames.json, offsets выборки согласованы (chunk/data_offset: -1:0, -1:0, 0:0); открыта issue по массовым empty PNG при non-empty raw за пределами минимальной выборки.`
 - **Критерий подтверждения/опровержения:**
   - подтверждение: `decoded_frame_count` совпадает с фактическими preview/raw выборками и offsets не выходят за sprite stream
   - опровержение: повторяемые пустые `.bin` при валидных размерах кадров или разрушенные палитры в preview
@@ -132,7 +134,8 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
   - manifest: `.artifacts/extractor_out/extracted/sprites/m11_0/chunk_00/manifest.json`
   - research preview: `extracted/images/research/m11_0/chunk_00/preview_frame_000.md`
   - research raw: `extracted/images/research/m11_0/chunk_00/raw_frame_000.md`
-- **Confirmation status:** `unverified`
+- **Confirmation status:** `partially_confirmed`
+- **Validation notes:** `2026-04-05: проверены кадры 000/001/002 (preview+raw), frame_id -> payload.frame_index совпадает между manifest и frames trace, offsets согласованы (chunk/data_offset: 0:0, 1:0, 1:1499); открыта issue по единичным empty PNG при non-empty raw в chunk_00.`
 - **Критерий подтверждения/опровержения:**
   - подтверждение: совпадают пары `frame_id -> payload.frame_index`; region table не ломает базовый decode
   - опровержение: рассинхрон frame/payload mapping либо деградация decode после учета regions
@@ -163,7 +166,8 @@ python -m tools.decode_graphics 240x320-rus-zombie-infection.jar -o .artifacts/e
   - manifest: `.artifacts/extractor_out/extracted/sprites/m11_1/chunk_00/manifest.json`
   - research preview: `extracted/images/research/m11_1/chunk_00/preview_frame_000.md`
   - research raw: `extracted/images/research/m11_1/chunk_00/raw_frame_000.md`
-- **Confirmation status:** `unverified`
+- **Confirmation status:** `rejected`
+- **Validation notes:** `2026-04-05: проверены кадры 000/001/002 (preview+raw), offsets выборки формально согласованы (chunk/data_offset: -1:0, -1:0, -1:0), но воспроизводимость нарушена: metadata/manifest фиксируют 17 кадров, а frames.json экспортирует только 4; заведена issue по offset/payload desync для m11_1#00.`
 - **Критерий подтверждения/опровержения:**
   - подтверждение: консистентный `frame_count` в trace + валидные preview/raw пары без системных искажений
   - опровержение: пустые PNG при непустом raw в повторяемом наборе кадров или несоответствие выбранной ветки codec
