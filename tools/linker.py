@@ -87,6 +87,9 @@ def _validate_reference(project: JarProject, ref: dict[str, Any]) -> tuple[bool,
 def _keep_valid_refs(project: JarProject, refs: list[dict[str, Any]], dropped_bucket: list[dict[str, Any]]) -> list[dict[str, Any]]:
     valid_entries: list[dict[str, Any]] = []
     for entry in refs:
+        confidence = entry.get('confidence')
+        if confidence not in CONFIDENCE_VALUES:
+            entry['confidence'] = 'unknown'
         ok, error = _validate_reference(project, entry['ref'])
         if ok:
             valid_entries.append(entry)

@@ -1,4 +1,5 @@
 import unittest
+from hashlib import sha256
 from pathlib import Path
 
 import pytest
@@ -104,6 +105,68 @@ class TestAtlasChain(unittest.TestCase):
         self.assertEqual((width, height), (2, 2))
         self.assertEqual(rgba, [0xFF000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFF000000])
         self.assertEqual(atlas.sprite_chunk_indices[0], 2)
+
+    def test_packed2_indices_dimensions_and_hash_are_stable(self):
+        header = bytearray()
+        header.extend(b'\x00\x00')
+        header.extend((0).to_bytes(4, 'little'))
+        header.extend((1).to_bytes(2, 'little'))
+        header.extend(bytes([0]))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((4).to_bytes(2, 'little'))
+        header.extend((2).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((PAL_FMT_RGB4444).to_bytes(2, 'little'))
+        header.extend(bytes([1, 4]))
+        for word in (0xF000, 0xFF00, 0xF0F0, 0xF00F):
+            header.extend(word.to_bytes(2, 'little'))
+        header.extend((1024).to_bytes(2, 'little'))  # FMT_PACKED_2
+        header.extend((2).to_bytes(2, 'little'))
+        header.extend(bytes([0x1B, 0xE4]))  # indices: 0,1,2,3,3,2,1,0
+
+        atlas = parse_atlas('synthetic-packed2', bytes(header))
+        self.assertEqual((atlas.frames[0].width, atlas.frames[0].height), (4, 2))
+        self.assertEqual(atlas.decode_frame_indices(0), [0, 1, 2, 3, 3, 2, 1, 0])
+        width, height, rgba = atlas.rgba_for_frame(0, 0)
+        self.assertEqual((width, height), (4, 2))
+        packed = b''.join((px & 0xFFFFFFFF).to_bytes(4, 'little') for px in rgba)
+        self.assertEqual(sha256(packed).hexdigest(), '3277a72649632e13772770d0473b7109849881aacdaac055a8ecd6b53950ae1e')
+
+    def test_index8_external_palette_values_and_hash_are_stable(self):
+        header = bytearray()
+        header.extend(b'\x00\x00')
+        header.extend((0).to_bytes(4, 'little'))
+        header.extend((1).to_bytes(2, 'little'))
+        header.extend(bytes([0]))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((3).to_bytes(2, 'little'))
+        header.extend((2).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((0).to_bytes(2, 'little'))
+        header.extend((PAL_FMT_RGB565_ALPHA_KEY).to_bytes(2, 'little'))
+        header.extend(bytes([1, 3]))
+        for word in (0xF81F, 0x0000, 0xFFFF):
+            header.extend(word.to_bytes(2, 'little'))
+        header.extend((22018).to_bytes(2, 'little'))  # FMT_INDEX_8
+        header.extend((6).to_bytes(2, 'little'))
+
+        atlas = parse_atlas(
+            'synthetic-index8-external',
+            bytes(header),
+            chunk_index=1,
+            external_chunks=[(2, b'\x00\x01\x02\x02\x01\x00')],
+        )
+        self.assertEqual(atlas.palettes[0].colors, [0, 0xFF000000, 0xFFFFFFFF])
+        self.assertEqual(atlas.decode_frame_indices(0), [0, 1, 2, 2, 1, 0])
+        width, height, rgba = atlas.rgba_for_frame(0, 0)
+        self.assertEqual((width, height), (3, 2))
+        packed = b''.join((px & 0xFFFFFFFF).to_bytes(4, 'little') for px in rgba)
+        self.assertEqual(sha256(packed).hexdigest(), 'e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4')
 
 
 if __name__ == '__main__':

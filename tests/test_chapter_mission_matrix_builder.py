@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tools.decode_maps import build_chapter_mission_matrix, build_final_table
+from tests.fixtures_mission_semantics import EXPECTED_MISSION_ROWS
 
 
 class _ProjectStub:
@@ -74,6 +75,10 @@ def test_build_chapter_mission_matrix_exports_and_validates(tmp_path: Path) -> N
 
     payload = json.loads(json_path.read_text(encoding='utf-8'))
     assert payload[0]['graphics pack'] == 'm3_0, m4_0'
+    assert set(payload[0]['confidence_summary']) == {'direct', 'inferred', 'unknown'}
+    assert all(link['confidence'] in {'direct', 'inferred', 'unknown'} for link in payload[0]['links'])
+    markdown = md_path.read_text(encoding='utf-8')
+    assert 'confidence' in markdown.splitlines()[0]
 
 
 def test_chapter_counts_follow_m6_containers(tmp_path: Path) -> None:
@@ -125,6 +130,12 @@ def test_chapter_counts_follow_m6_containers(tmp_path: Path) -> None:
     assert len(matrix_rows) == 4
     assert [row['chapter'] for row in final_rows] == [0, 1, 2, 3]
     assert [row['chapter'] for row in matrix_rows] == [0, 1, 2, 3]
+    assert all(set(row['confidence']) == {'map pack', 'graphics pack', 'audio'} for row in final_rows)
+    assert all(
+        link['confidence'] in {'direct', 'inferred', 'unknown'}
+        for row in matrix_rows
+        for link in row['links']
+    )
 
 
 def test_graphics_chunk_links_are_not_identical_between_chapters_by_default(tmp_path: Path) -> None:
@@ -186,3 +197,40 @@ def test_graphics_chunk_links_are_not_identical_between_chapters_by_default(tmp_
     assert chapter0_graphics
     assert chapter1_graphics
     assert chapter0_graphics != chapter1_graphics
+
+
+def test_chapter_mission_matrix_uses_known_mission_fixture_rows(tmp_path: Path) -> None:
+    output = tmp_path
+    text_dir = output / 'extracted' / 'text'
+    text_dir.mkdir(parents=True)
+    for idx in range(6):
+        (text_dir / f't0_{idx:02d}_full.txt').write_text(
+            f'chapter {idx} zombie laboratory final fight',
+            encoding='utf-8',
+        )
+
+    maps_report = {f'm6_{idx}': {'map_count': 1} for idx in range(6)}
+    script_report = {'m9': {'chapter_mission_links': {'mission_links': EXPECTED_MISSION_ROWS}}}
+    graphics_report = {'containers': {'m3_0': {'chunks': [{'chunk': 0}]}, 'm4_0': {'chunks': [{'chunk': 0}]}}}
+    audio_report = {'midi': [], 'raw_audio': []}
+    text_report = {
+        'chunks': [
+            {'chunk_index': idx, 'path': f'extracted/text/t0_{idx:02d}_full.txt'}
+            for idx in range(6)
+        ]
+    }
+
+    rows = build_chapter_mission_matrix(
+        _ProjectStub(),
+        output,
+        maps_report,
+        script_report,
+        graphics_report,
+        audio_report,
+        text_report,
+    )
+
+    chapter_to_mission = {row['chapter']: row['mission'] for row in rows}
+    assert chapter_to_mission[2] == '#0'
+    assert chapter_to_mission[4] == '#1'
+    assert chapter_to_mission[1] == '#2'

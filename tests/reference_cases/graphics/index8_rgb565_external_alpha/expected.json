@@ -1,0 +1,38 @@
+{
+  "atlas": {
+    "frame_count": 1,
+    "palette_count": 1,
+    "palette_format": 25861,
+    "palette_size": 3,
+    "pixel_format": 22018
+  },
+  "case_id": "index8_rgb565_external_alpha",
+  "description": "Synthetic reference case: index8_rgb565_external_alpha",
+  "inputs": {
+    "external_sha256": {
+      "2": "b625fb32a006ff0fe9aa25104b3c5ca08954eb8eca58b7c5755ae1d55a4b440a"
+    },
+    "table_sha256": "8c184e64cb665f12eb65890db07c3a96e41e786fa504158023a5804a3499a918"
+  },
+  "preview": {
+    "channel_mean": {
+      "a": 170.0,
+      "b": 85.0,
+      "g": 85.0,
+      "r": 85.0
+    },
+    "channel_sum": {
+      "a": 1020,
+      "b": 510,
+      "g": 510,
+      "r": 510
+    },
+    "height": 2,
+    "opaque_pixels": 4,
+    "pixel_count": 6,
+    "png_sha256": "dae7b32e937177ef07f6aaafe01c85e08fb97430c8900b6ef2f3c45bbe59d6fc",
+    "rgba_sha256": "e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4",
+    "unique_colors": 3,
+    "width": 3
+  }
+}

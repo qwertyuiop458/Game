@@ -18,6 +18,12 @@ def _make_container(*chunks: bytes) -> bytes:
     return bytes(header + payload)
 
 
+def _build_midi(track_count: int, tracks: list[bytes]) -> bytes:
+    header = b'MThd' + (6).to_bytes(4, 'big') + (0).to_bytes(2, 'big') + track_count.to_bytes(2, 'big') + (96).to_bytes(2, 'big')
+    body = b''.join(b'MTrk' + len(track).to_bytes(4, 'big') + track for track in tracks)
+    return header + body
+
+
 def test_decode_audio_creates_raw_sidecar_and_signature_registry_for_non_midi_chunks(tmp_path: Path) -> None:
     jar_path = tmp_path / 'sample.jar'
     with zipfile.ZipFile(jar_path, 'w') as zf:
@@ -45,6 +51,7 @@ def test_decode_audio_creates_raw_sidecar_and_signature_registry_for_non_midi_ch
     assert len(registry) == 3
     assert all(item['kind'] == 'raw' for item in registry)
     assert all('sha1' in item and 'crc32_hex' in item for item in registry)
+    assert report['midi_validation_summary'] == {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0}
 
 
 def test_decode_audio_swallows_chunk_errors_and_reports_invalid_stats(monkeypatch, tmp_path: Path) -> None:
@@ -75,3 +82,45 @@ def test_decode_audio_swallows_chunk_errors_and_reports_invalid_stats(monkeypatc
     assert len(report['raw_audio']) == 1
     assert (output_dir / report['raw_audio'][0]['path']).exists()
     assert (output_dir / report['raw_audio'][0]['meta']).exists()
+
+
+def test_decode_audio_marks_valid_midi_status(tmp_path: Path) -> None:
+    midi = _build_midi(track_count=1, tracks=[b'\x00\xff\x2f\x00'])
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_1', _make_container(midi))
+
+    report = decode_audio(jar_path, tmp_path / 'out')
+
+    assert len(report['midi']) == 1
+    assert report['midi_validation'][0]['status'] == 'valid'
+    assert report['midi_validation'][0]['reason'] == 'ok'
+    assert report['midi_validation_summary'] == {'total': 1, 'valid': 1, 'invalid': 0, 'warnings': 0}
+
+
+def test_decode_audio_marks_corrupted_midi_header_invalid(tmp_path: Path) -> None:
+    corrupted = b'MThd\x00\x00\x00\x06\x00'
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_1', _make_container(corrupted))
+
+    report = decode_audio(jar_path, tmp_path / 'out')
+
+    assert len(report['midi']) == 1
+    assert report['midi_validation'][0]['status'] == 'invalid'
+    assert report['midi_validation'][0]['reason'] == 'midi_header_too_short'
+    assert report['midi_validation_summary'] == {'total': 1, 'valid': 0, 'invalid': 1, 'warnings': 0}
+
+
+def test_decode_audio_marks_track_count_mismatch_warning(tmp_path: Path) -> None:
+    inconsistent = _build_midi(track_count=2, tracks=[b'\x00\xff\x2f\x00'])
+    jar_path = tmp_path / 'sample.jar'
+    with zipfile.ZipFile(jar_path, 'w') as zf:
+        zf.writestr('m13_1', _make_container(inconsistent))
+
+    report = decode_audio(jar_path, tmp_path / 'out')
+
+    assert len(report['midi']) == 1
+    assert report['midi_validation'][0]['status'] == 'warning'
+    assert report['midi_validation'][0]['reason'].startswith('track_count_mismatch')
+    assert report['midi_validation_summary'] == {'total': 1, 'valid': 0, 'invalid': 0, 'warnings': 1}

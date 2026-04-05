@@ -1,0 +1,36 @@
+{
+  "atlas": {
+    "frame_count": 1,
+    "palette_count": 1,
+    "palette_format": 17476,
+    "palette_size": 4,
+    "pixel_format": 1024
+  },
+  "case_id": "packed2_rgb4444_inline",
+  "description": "Synthetic reference case: packed2_rgb4444_inline",
+  "inputs": {
+    "external_sha256": {},
+    "table_sha256": "c33bfd83f426e7944f3a30ce88b4d374e4743cf4d3e3e1f3a5b970e7c0117ebc"
+  },
+  "preview": {
+    "channel_mean": {
+      "a": 255.0,
+      "b": 63.75,
+      "g": 63.75,
+      "r": 63.75
+    },
+    "channel_sum": {
+      "a": 2040,
+      "b": 510,
+      "g": 510,
+      "r": 510
+    },
+    "height": 2,
+    "opaque_pixels": 8,
+    "pixel_count": 8,
+    "png_sha256": "0061793221d887a6c0443d0408e1dcae3ff1c4a87d504f105581d87251632c7f",
+    "rgba_sha256": "3277a72649632e13772770d0473b7109849881aacdaac055a8ecd6b53950ae1e",
+    "unique_colors": 4,
+    "width": 4
+  }
+}
