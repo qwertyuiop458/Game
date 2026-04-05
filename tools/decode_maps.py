@@ -346,7 +346,7 @@ def _build_map_script_mismatch_report(
     semantic_levels = scripts.get('m9', {}).get('semantic_levels', {}).get('levels', [])
     m9_links_to_m8 = 0
     for level_entry in semantic_levels:
-        level_path = project.output / level_entry.get('path', '')
+        level_path = project.output_dir / level_entry.get('path', '')
         if not level_path.exists():
             continue
         level_payload = json.loads(level_path.read_text(encoding='utf-8'))
