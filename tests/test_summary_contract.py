@@ -79,6 +79,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'chapter_mission_matrix_rows',
         'chapter_matrix_rows',
         'chapter_matrix_cross_check',
+        'map_validation_summary',
     }
     assert set(summary) == expected_keys
 
@@ -95,6 +96,8 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(summary['chapter_mission_matrix_rows'], int)
     assert isinstance(summary['chapter_matrix_rows'], int)
     assert isinstance(summary['chapter_matrix_cross_check'], dict)
+    assert isinstance(summary['map_validation_summary'], dict)
+    assert summary['map_validation_summary'] == {'info': 0, 'warning': 0, 'error': 0}
 
     for quality in summary['container_quality'].values():
         assert isinstance(quality.get('validation_errors'), list)
