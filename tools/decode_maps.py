@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import COMMON_WIDTHS, JarProject, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
+from tools.script_parser import build_opcode_coverage, build_semantic_level_exports, parse_m9_chunk_tables, parse_script_chunk_semantic
 
 
 def factor_grid(cells: int) -> tuple[int, int]:
@@ -220,17 +221,33 @@ def decode_maps(jar: Path, output: Path) -> dict:
                 chunks.append({'chunk_index': idx, 'size': len(chunk), 'path': str(path.relative_to(output)), 'opcode_histogram': parsed['opcode_histogram']})
             scripts['m8'] = {'chunk_count': len(chunks), 'chunks': chunks}
         elif name == 'm9':
-            tables = []
+            table_chunks = parse_m9_chunk_tables(container.payloads)
             script_packs = []
+            semantic_rows = []
             for idx, chunk in enumerate(container.payloads):
                 if idx < 10:
-                    tables.append({'chunk_index': idx, 'size': len(chunk), 'u16_preview': [u16le(chunk, pos) for pos in range(0, min(len(chunk) - len(chunk) % 2, 32), 2)]})
-                else:
-                    parsed = parse_script_stream(chunk)
-                    path = docs_dir / f'm9_script_{idx:02d}.json'
-                    write_json(path, parsed)
-                    script_packs.append({'chunk_index': idx, 'size': len(chunk), 'path': str(path.relative_to(output)), 'opcode_histogram': parsed['opcode_histogram'], 'm8_reference_count': len(parsed['m8_reference_candidates'])})
-            scripts['m9'] = {'tables': tables, 'script_packs': script_packs}
+                    continue
+                parsed = parse_script_chunk_semantic(chunk)
+                path = docs_dir / f'm9_script_{idx:02d}.json'
+                write_json(path, parsed)
+                script_packs.append({
+                    'chunk_index': idx,
+                    'size': len(chunk),
+                    'path': str(path.relative_to(output)),
+                    'opcode_histogram': parsed['opcode_histogram'],
+                    'semantic_known_count': parsed['semantic_known_count'],
+                    'semantic_unknown_count': parsed['semantic_unknown_count'],
+                })
+                semantic_rows.append({'chunk_index': idx, 'commands': parsed['commands']})
+
+            semantic_levels = build_semantic_level_exports(output, table_chunks, semantic_rows)
+            opcode_coverage = build_opcode_coverage(semantic_rows)
+            scripts['m9'] = {
+                **table_chunks,
+                'chunk10_plus_scripts': script_packs,
+                'semantic_levels': semantic_levels,
+                'opcode_coverage': opcode_coverage,
+            }
         else:
             chunks = []
             for idx, chunk in enumerate(container.payloads):
