@@ -134,6 +134,37 @@ def build_final_table(project: JarProject, output: Path, maps_report: dict, scri
     return rows
 
 
+def build_chapter_mission_matrix(
+    project: JarProject,
+    output: Path,
+    maps_report: dict,
+    script_report: dict,
+    audio_report: dict,
+    text_report: dict,
+) -> list[dict[str, Any]]:
+    rows = []
+    for chapter in range(6):
+        map_pack = f'm6_{chapter}'
+        map_count = maps_report.get(map_pack, {}).get('map_count', 0)
+        script_chunk = 10 + chapter
+        rows.append(
+            {
+                'chapter': chapter,
+                'mission_index': chapter,
+                'map_pack': map_pack,
+                'map_count': map_count,
+                'script_pack': 'm9',
+                'script_chunk_index': script_chunk,
+                'audio_pack': 'm13',
+                'text_pack': 't0',
+            }
+        )
+
+    matrix_path = output / 'docs' / 'reverse_engineering' / 'chapter_mission_matrix.json'
+    write_json(matrix_path, rows)
+    return rows
+
+
 def decode_maps(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
