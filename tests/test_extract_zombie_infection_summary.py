@@ -62,7 +62,7 @@ def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_pat
 
     summary = run_extractor(jar, output)
     container_quality = summary['container_quality']
-    assert summary['map_validation_summary'] == {'info': 0, 'warning': 0, 'error': 0}
+    assert summary['audio_stats'] == {'valid_midi': 0, 'invalid_midi': 0, 'raw_audio': 0}
 
     assert container_quality['ok_container'] == {
         'header_mode': 'u32',
@@ -83,4 +83,4 @@ def test_summary_container_quality_contains_detailed_fields(monkeypatch, tmp_pat
 
     written_summary = json.loads((output / 'summary.json').read_text(encoding='utf-8'))
     assert written_summary['container_quality'] == container_quality
-    assert written_summary['map_validation_summary'] == {'info': 0, 'warning': 0, 'error': 0}
+    assert written_summary['audio_stats'] == summary['audio_stats']
