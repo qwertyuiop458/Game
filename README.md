@@ -38,6 +38,11 @@ By default, the extractor writes to `.artifacts/extractor_out/`, which is gitign
 - machine-readable `summary.json` tying the above artifacts together.
 - chapter dependency matrix in JSON/Markdown (`chapter_matrix.json`, `chapter_matrix.md`) with direct/inferred links and cross-check status.
 
+`chunks/containers.json` stores per-chunk metadata with exact hash fields:
+
+- `crc32_hex`: 8-character lowercase CRC32 checksum of raw chunk bytes.
+- `sha1`: full 40-character SHA-1 digest computed as `hashlib.sha1(chunk).hexdigest()`.
+
 ## Repository policy
 
 Generated extractor output is intentionally **not committed** to this repository. Run the extractor locally or in CI/GitHub artifacts when you need the binary dumps and derived previews.
