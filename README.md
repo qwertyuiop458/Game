@@ -39,6 +39,17 @@ By default, the extractor writes to `.artifacts/extractor_out/`, which is gitign
 - reverse-engineering notes plus the requested chapter/mission summary table under `docs/reverse_engineering/`;
 - machine-readable `summary.json` tying the above artifacts together.
 - chapter dependency matrix in JSON/Markdown (`chapter_matrix.json`, `chapter_matrix.md`) with direct/inferred links and cross-check status.
+- UI resources copied from the original JAR under `extracted/ui/`:
+  - `icon.png`
+  - `dataIGP`
+  - metadata manifest with file size and checksums in `extracted/meta/ui_manifest.json`.
+  - бинарные UI-файлы не хранятся в git (ограничение PR-платформы); при необходимости восстановите их локально:
+
+```bash
+mkdir -p extracted/ui
+unzip -p 240x320-rus-zombie-infection.jar icon.png > extracted/ui/icon.png
+unzip -p 240x320-rus-zombie-infection.jar dataIGP > extracted/ui/dataIGP
+```
 
 `chunks/containers.json` stores per-chunk metadata with exact hash fields:
 

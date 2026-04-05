@@ -1,0 +1,19 @@
+{
+  "source_jar": "240x320-rus-zombie-infection.jar",
+  "files": [
+    {
+      "name": "icon.png",
+      "path": "extracted/ui/icon.png",
+      "size_bytes": 1089,
+      "crc32_hex": "52a0e41e",
+      "sha1": "c1c7dfc537a3d90ef3cbe47e5eedcba5511d8780"
+    },
+    {
+      "name": "dataIGP",
+      "path": "extracted/ui/dataIGP",
+      "size_bytes": 56713,
+      "crc32_hex": "0f3c718f",
+      "sha1": "cf6d98c23b730d6c1975b7d0f68b9adaacb8ed3b"
+    }
+  ]
+}
