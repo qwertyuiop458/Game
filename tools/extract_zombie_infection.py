@@ -131,6 +131,10 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'chapter_mission_matrix_rows': len(chapter_mission_matrix),
         'chapter_matrix_rows': len(chapter_matrix.get('chapters', [])),
         'chapter_matrix_cross_check': chapter_matrix.get('cross_check', {}),
+        'map_validation_summary': maps_bundle.get('mismatch_report', {}).get(
+            'counts',
+            {'info': 0, 'warning': 0, 'error': 0},
+        ),
     }
     write_json(output / 'summary.json', summary)
     return summary

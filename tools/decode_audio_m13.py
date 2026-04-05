@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import math
 from collections import Counter
 from pathlib import Path
 
@@ -44,6 +46,42 @@ def analyse_audio_blob(chunk: bytes) -> dict:
     }
 
 
+def build_chunk_signature(chunk: bytes, head_size: int = 24, top_bytes: int = 8) -> dict:
+    size = len(chunk)
+    if size == 0:
+        return {
+            'key': 'empty:0',
+            'size': 0,
+            'head_hex': '',
+            'sha1': hashlib.sha1(chunk).hexdigest(),
+            'nonzero_ratio': 0.0,
+            'entropy': 0.0,
+            'top_bytes': [],
+        }
+    freq = Counter(chunk)
+    entropy = 0.0
+    for count in freq.values():
+        p = count / size
+        entropy -= p * math.log2(p)
+    head_hex = chunk[:head_size].hex()
+    top = freq.most_common(top_bytes)
+    nonzero_ratio = round(sum(1 for b in chunk if b) / size, 4)
+    key = (
+        f'len:{size}|head:{head_hex}|'
+        f'entropy:{entropy:.4f}|nonzero:{nonzero_ratio:.4f}|'
+        f'top:{",".join(f"{byte:02x}:{count}" for byte, count in top)}'
+    )
+    return {
+        'key': key,
+        'size': size,
+        'head_hex': head_hex,
+        'sha1': hashlib.sha1(chunk).hexdigest(),
+        'nonzero_ratio': nonzero_ratio,
+        'entropy': round(entropy, 4),
+        'top_bytes': [[byte, count] for byte, count in top],
+    }
+
+
 def decode_audio(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
@@ -66,7 +104,9 @@ def decode_audio(jar: Path, output: Path) -> dict:
         pack_dir = audio_dir / name
         ensure_dir(pack_dir)
         for idx, chunk in enumerate(container.payloads):
+            coverage['total_chunks'] += 1
             if not chunk:
+                coverage['empty_chunks'] += 1
                 continue
             if b'MThd' in chunk:
                 start = chunk.index(b'MThd')

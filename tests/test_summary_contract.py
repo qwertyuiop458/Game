@@ -80,6 +80,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'chapter_mission_matrix_rows',
         'chapter_matrix_rows',
         'chapter_matrix_cross_check',
+        'map_validation_summary',
     }
     assert set(summary) == expected_keys
 
