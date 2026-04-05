@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from tools.extract_zombie_infection import run_extractor
+from tools.extract_zombie_infection import (
+    SUMMARY_REQUIRED_KEYS,
+    SUMMARY_SCHEMA_VERSION,
+    is_summary_backward_compatible,
+    run_extractor,
+)
 
 
 def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
@@ -109,6 +114,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     summary = run_extractor(jar, output)
 
     expected_keys = {
+        'summary_schema_version',
         'jar',
         'containers',
         'container_quality',
@@ -131,6 +137,9 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'linker_conflicts_summary',
     }
     assert set(summary) == expected_keys
+    assert SUMMARY_REQUIRED_KEYS == expected_keys
+    assert summary['summary_schema_version'] == SUMMARY_SCHEMA_VERSION
+    assert is_summary_backward_compatible(summary)
 
     assert isinstance(summary['jar'], str)
     assert isinstance(summary['containers'], dict)
@@ -230,3 +239,24 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     for quality in written_summary['container_quality'].values():
         assert isinstance(quality.get('validation_errors'), list)
         assert all(isinstance(err, str) for err in quality['validation_errors'])
+
+
+def test_summary_backward_compatibility_rules() -> None:
+    compatible_summary = {key: {} for key in SUMMARY_REQUIRED_KEYS}
+    compatible_summary.update({
+        'summary_schema_version': '1.4.0',
+        'maps_validation_passed': 0,
+        'maps_validation_failed': 0,
+        'final_table_rows': 0,
+        'chapter_mission_matrix_rows': 0,
+        'chapter_matrix_rows': 0,
+    })
+    assert is_summary_backward_compatible(compatible_summary)
+
+    breaking_major_summary = dict(compatible_summary)
+    breaking_major_summary['summary_schema_version'] = '2.0.0'
+    assert not is_summary_backward_compatible(breaking_major_summary)
+
+    missing_key_summary = dict(compatible_summary)
+    missing_key_summary.pop('audio_coverage')
+    assert not is_summary_backward_compatible(missing_key_summary)

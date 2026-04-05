@@ -108,6 +108,7 @@ Top-level structure written by the orchestrator:
 - research previews for `m3_0`, `m4_0`, `m11_0`, `m11_1` under `extracted/images/research/`;
 - reverse-engineering notes plus the requested chapter/mission summary table under `docs/reverse_engineering/`;
 - machine-readable `summary.json` tying the above artifacts together.
+- formalized API contract for `summary.json`: [`docs/reverse_engineering/summary_schema.md`](docs/reverse_engineering/summary_schema.md).
 - chapter dependency matrix in JSON/Markdown (`chapter_matrix.json`, `chapter_matrix.md`) with direct/inferred links and cross-check status.
 - chapter matrix artifacts are **runtime-generated** (not stored in git):  
   - generated under `<output_dir>/docs/reverse_engineering/chapter_matrix.json`;  
@@ -138,6 +139,34 @@ unzip -p 240x320-rus-zombie-infection.jar dataIGP > extracted/ui/dataIGP
 Generated extractor output is intentionally **not committed** to this repository. Run the extractor locally or in CI/GitHub artifacts when you need the binary dumps and derived previews.
 
 This policy includes chapter/mission matrix outputs (`chapter_matrix.*`, `chapter_mission_matrix.*`, `final_asset_table.*`): they are generated during extractor execution and should be read from `<output_dir>/docs/reverse_engineering/` (default: `.artifacts/extractor_out/docs/reverse_engineering/`).
+
+## `summary.json` as an analytics API (consumer-oriented)
+
+Treat `summary.json` as a versioned API contract, not just a debug dump:
+
+1. Check `summary_schema_version` (`MAJOR.MINOR.PATCH`).
+2. Accept only the supported major version.
+3. Read required keys and ignore unknown keys for forward compatibility.
+
+Minimal Python example:
+
+```python
+import json
+from pathlib import Path
+
+summary = json.loads(Path(".artifacts/extractor_out/summary.json").read_text(encoding="utf-8"))
+schema_version = summary["summary_schema_version"]  # e.g. "1.0.0"
+major = int(schema_version.split(".", 1)[0])
+if major != 1:
+    raise RuntimeError(f"Unsupported summary schema major: {schema_version}")
+
+coverage = summary["audio_coverage"]["coverage_percent"]
+maps_failed = summary["maps_validation_failed"]
+print({"coverage_percent": coverage, "maps_validation_failed": maps_failed})
+```
+
+For full field list, invariants, and breaking/deprecation policy see:
+[`docs/reverse_engineering/summary_schema.md`](docs/reverse_engineering/summary_schema.md).
 
 ## Iteration 1 coverage
 
