@@ -6,6 +6,7 @@ import logging
 import sys
 import zlib
 from pathlib import Path
+from typing import Any
 
 if __package__ in {None, ''}:
     # Allow direct script run: `python tools/extract_zombie_infection.py ...`
@@ -88,13 +89,25 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         text,
     )
     chapter_matrix = build_chapter_matrix(jar, output)
-    container_quality = {
-        name: {
+    container_quality: dict[str, dict[str, Any]] = {}
+    for name, info in chunks.items():
+        validation_errors = info.get('validation_errors')
+        if validation_errors is None:
+            normalized_errors: list[str] = []
+        else:
+            normalized_errors = [str(error) for error in validation_errors]
+
+        details: dict[str, Any] = {
             'header_mode': info.get('header_mode'),
             'validation': info.get('validation', 'errors'),
+            'validation_errors': normalized_errors,
+            'chunk_count': info.get('chunk_count'),
+            'header_size': info.get('header_size'),
         }
-        for name, info in chunks.items()
-    }
+        if 'payload_size' in info:
+            details['payload_size'] = info.get('payload_size')
+
+        container_quality[name] = details
     summary = {
         'jar': str(jar),
         'containers': chunks,
