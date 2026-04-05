@@ -12,6 +12,8 @@ Migration is complete: `offline_extractor.py` is now a thin compatibility wrappe
 
 Equivalent modular entrypoints are available under `tools/`.
 
+### New modular CLI
+
 Supported launch modes for the full extractor (in priority order):
 
 1. **Recommended**: module mode (stable imports in any working directory):
@@ -37,12 +39,51 @@ python3 -m tools.decode_maps 240x320-rus-zombie-infection.jar
 python3 -m tools.linker 240x320-rus-zombie-infection.jar
 ```
 
+Orchestrator command with explicit output directory:
+
+```bash
+python3 -m tools.extract_zombie_infection \
+  240x320-rus-zombie-infection.jar \
+  -o .artifacts/extractor_out
+```
+
 By default, the extractor writes to `.artifacts/extractor_out/`, which is gitignored so generated binaries, PNGs, MIDI files, and JSON dumps do not end up in pull requests. Use `-o <dir>` if you want a different output location.
 
 ## GitHub guide
 
 - Подробное объяснение экстрактора на русском для чтения прямо в GitHub: [`docs/github_explanations_ru.md`](docs/github_explanations_ru.md)
 - Документ оформлен как интерактивная навигация по архитектуре, функциям и выходным артефактам, чтобы код было легче читать через GitHub UI.
+
+## Output directory layout (`-o <output_dir>`)
+
+Top-level structure written by the orchestrator:
+
+```text
+<output_dir>/
+├─ chunks/
+│  ├─ containers.json
+│  ├─ container_validation.json
+│  └─ <pack>/<NN>.bin
+├─ extracted/
+│  ├─ audio/
+│  ├─ images/
+│  ├─ maps/
+│  ├─ meta/
+│  ├─ sprites/
+│  ├─ text/
+│  ├─ tiles/
+│  └─ ui/
+├─ images/
+│  └─ decoded/
+├─ docs/
+│  └─ reverse_engineering/
+│     ├─ chapter_matrix.json
+│     ├─ chapter_matrix.md
+│     ├─ chapter_mission_matrix.json
+│     └─ final_asset_table.{json,md}
+├─ summary.json
+└─ ...
+```
 
 ## What the extractor produces
 
