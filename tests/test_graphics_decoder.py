@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from hashlib import sha256
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from tools.graphics_decoder import (
     decode_palette_entries,
     parse_atlas,
 )
+from tools.decode_graphics import _render_frame_with_diagnostics
 
 
 @pytest.mark.graphics
@@ -167,6 +169,40 @@ class TestAtlasChain(unittest.TestCase):
         self.assertEqual((width, height), (3, 2))
         packed = b''.join((px & 0xFFFFFFFF).to_bytes(4, 'little') for px in rgba)
         self.assertEqual(sha256(packed).hexdigest(), 'e4244de48ef27e59449f33ed15ac575b6e0e0ab62d72e1330e31ff8905aa2be4')
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+class TestDecodeDiagnosticsFallback(unittest.TestCase):
+    class _FakeAtlas:
+        def __init__(self, decoded, indices):
+            self.frames = [SimpleNamespace(width=2, height=2)]
+            self.pixel_format = 22018
+            self._decoded = decoded
+            self._indices = indices
+
+        def rgba_for_frame(self, frame_index: int, palette_index: int):
+            return self._decoded
+
+        def decode_frame_indices(self, frame_index: int):
+            return self._indices
+
+    def test_non_empty_raw_uses_degraded_fallback_for_fully_transparent_decode(self):
+        atlas = self._FakeAtlas(decoded=(2, 2, [0x00000000, 0x00000000, 0x00000000, 0x00000000]), indices=[1, 2, 3, 4])
+        width, height, rgba, status, diagnostics = _render_frame_with_diagnostics(atlas, 0, b'\x01\x02\x03\x04')
+
+        self.assertEqual((width, height), (2, 2))
+        self.assertEqual(status, 'degraded_decode')
+        self.assertGreater(diagnostics['alpha']['non_zero'], 0)
+        self.assertTrue(all(((px >> 24) & 0xFF) == 0xFF for px in rgba))
+
+    def test_failed_decode_requires_no_raw_payload(self):
+        atlas = self._FakeAtlas(decoded=None, indices=None)
+        _, _, rgba, status, diagnostics = _render_frame_with_diagnostics(atlas, 0, b'')
+
+        self.assertEqual(status, 'failed_decode')
+        self.assertEqual(diagnostics['raw_payload_size'], 0)
+        self.assertEqual(rgba, [])
 
 
 if __name__ == '__main__':
