@@ -1,0 +1,8 @@
+{
+  "case_id": "packed2_rgb4444_inline",
+  "description": "Synthetic reference case: packed2_rgb4444_inline",
+  "table_chunk_hex": "table_chunk.hex",
+  "external_chunks": [],
+  "preview_png_base64": "preview.png.b64",
+  "metadata_json": "expected.json"
+}

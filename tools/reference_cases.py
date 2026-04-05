@@ -242,9 +242,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Validate or update graphics reference cases.')
     parser.add_argument('--cases-dir', type=Path, default=DEFAULT_CASES_DIR)
     parser.add_argument('--update', action='store_true', help='Regenerate preview images and metadata.')
+    parser.add_argument(
+        '--confirm-update',
+        action='store_true',
+        help='Explicitly confirm that expected reference files should be rewritten.',
+    )
     args = parser.parse_args()
 
     if args.update:
+        if not args.confirm_update:
+            raise SystemExit('Refusing to update reference cases without --confirm-update')
         update_reference_cases(args.cases_dir)
         print(f'Updated reference cases in {args.cases_dir}')
         return
