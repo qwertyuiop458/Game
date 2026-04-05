@@ -141,5 +141,5 @@ pytest -q tests/test_graphics_decoder.py
 Для короткой проверки ключевых регрессий:
 
 ```bash
-pytest -q -m smoke tests/test_smoke_contract_reference.py tests/test_graphics_reference_cases.py
+pytest -q -m smoke tests/test_smoke_contract_reference.py tests/test_graphics_contract_smoke.py tests/test_graphics_reference_cases.py
 ```
