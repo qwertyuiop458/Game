@@ -94,6 +94,21 @@ class ChunkInfo:
     crc32: str
 
 
+class ContainerValidationError(ValueError):
+    def __init__(self, name: str, diagnostics: list[str], header_mode: str, chunk_count: int, data_length: int):
+        self.name = name
+        self.diagnostics = diagnostics
+        self.header_mode = header_mode
+        self.chunk_count = chunk_count
+        self.data_length = data_length
+        message = (
+            f'Invalid container table for "{name}" '
+            f'(mode={header_mode}, chunk_count={chunk_count}, bytes={data_length}): '
+            + '; '.join(diagnostics)
+        )
+        super().__init__(message)
+
+
 def validate_container_layout(data: bytes, header_size: int, offsets: list[int]) -> list[str]:
     errors: list[str] = []
     total_size = len(data)
@@ -206,6 +221,38 @@ class Container:
         self.payload_size = parsed['payload_size']
         self.valid = parsed['valid']
         self.validation_errors = parsed['validation_errors']
+        if self.chunk_count == 0:
+            self.offsets = []
+        if len(data) < 5:
+            self.validation_errors = [
+                *self.validation_errors,
+                f'data length {len(data)} is too small for stable container parsing (<5 bytes)',
+            ]
+            self.valid = False
+        post_checks: list[str] = []
+        for idx, off in enumerate(self.offsets):
+            if not (0 <= off <= len(data)):
+                post_checks.append(f'offset[{idx}]={off} out of bounds [0, {len(data)}]')
+        for idx in range(len(self.offsets) - 1):
+            if self.offsets[idx] > self.offsets[idx + 1]:
+                post_checks.append(
+                    f'offsets are not sorted at {idx}->{idx + 1}: {self.offsets[idx]} > {self.offsets[idx + 1]}'
+                )
+        for idx, start in enumerate(self.offsets):
+            end = self.offsets[idx + 1] if idx + 1 < len(self.offsets) else self.payload_size
+            if end - start < 0:
+                post_checks.append(f'chunk[{idx}] has negative size: {end - start}')
+        if post_checks:
+            self.validation_errors = [*self.validation_errors, *post_checks]
+            self.valid = False
+        if not self.valid:
+            raise ContainerValidationError(
+                name=self.name,
+                diagnostics=self.validation_errors,
+                header_mode=self.header_mode,
+                chunk_count=self.chunk_count,
+                data_length=len(data),
+            )
         self.payloads: list[bytes] = []
         self.relative_ranges: list[tuple[int, int]] = []
         self.absolute_ranges: list[tuple[int, int]] = []
@@ -235,6 +282,7 @@ class Container:
             ).__dict__)
         return {
             'header_mode': self.header_mode,
+            'validation': 'ok' if self.valid else 'errors',
             'valid': self.valid,
             'validation_errors': self.validation_errors,
             'chunk_count': self.chunk_count,
@@ -250,6 +298,7 @@ class JarProject:
         self.jar_path = jar_path
         self.output_dir = output_dir
         self.containers: dict[str, Container] = {}
+        self.container_errors: dict[str, dict[str, Any]] = {}
         self.raw_entries: dict[str, bytes] = {}
 
     def load(self) -> None:
@@ -257,7 +306,17 @@ class JarProject:
             names = set(zf.namelist())
             for name in RESOURCE_ORDER:
                 if name in names:
-                    self.containers[name] = Container(name, zf.read(name))
+                    try:
+                        self.containers[name] = Container(name, zf.read(name))
+                    except ContainerValidationError as exc:
+                        self.container_errors[name] = {
+                            'header_mode': exc.header_mode,
+                            'validation': 'errors',
+                            'valid': False,
+                            'validation_errors': exc.diagnostics,
+                            'chunk_count': exc.chunk_count,
+                            'data_length': exc.data_length,
+                        }
             for name in ('icon.png', 'dataIGP', 'a.class', 'c.class', 'g.class', 'palettesAmount.bin'):
                 if name in names:
                     self.raw_entries[name] = zf.read(name)
