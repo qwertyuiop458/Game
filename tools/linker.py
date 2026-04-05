@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import JarProject, ensure_dir, write_json
-from tools.decode_maps import parse_script_stream
+from tools.script_parser import parse_script_chunk_semantic
 
 
 def _map_entries(project: JarProject, chapter: int) -> list[dict[str, Any]]:
@@ -128,22 +128,41 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         ]
 
         if m9_container and (10 + chapter) < len(m9_container.payloads):
-            parsed = parse_script_stream(m9_container.payloads[10 + chapter])
-            for item in parsed['m8_reference_candidates']:
+            parsed = parse_script_chunk_semantic(m9_container.payloads[10 + chapter])
+            for item in parsed['commands']:
+                m8_ref = item.get('refs', {}).get('m8')
+                if not m8_ref:
+                    continue
                 direct_candidates.append(
                     {
                         'kind': 'm9_opcode99_m8_ref',
-                        'ref': _build_reference('m8', item['m8_subchunk_index']),
-                        'confidence': 0.99,
-                        'reason': f"opcode 99 at 0x{item['offset']:x} in m9#{10 + chapter:02d}",
+                        'ref': _build_reference('m8', m8_ref['subchunk_index']),
+                        'confidence': m8_ref.get('confidence', 0.85),
+                        'reason': f"opcode {item['opcode']} at 0x{item['offset']:x} in m9#{10 + chapter:02d}",
                         'source': {
                             'm9_chunk': 10 + chapter,
                             'offset': item['offset'],
-                            'm8_pack_index': item['m8_pack_index'],
-                            'm8_subchunk_index': item['m8_subchunk_index'],
+                            'opcode': item['opcode'],
+                            'm8_pack_index': m8_ref.get('pack_index'),
+                            'm8_subchunk_index': m8_ref.get('subchunk_index'),
                         },
                     }
                 )
+                m6_ref = item.get('refs', {}).get('m6')
+                if m6_ref and m6_ref.get('subchunk') is not None:
+                    direct_candidates.append(
+                        {
+                            'kind': 'm9_common_m6_ref',
+                            'ref': _build_reference(m6_ref['pack'], int(m6_ref['subchunk'])),
+                            'confidence': m6_ref.get('confidence', 0.6),
+                            'reason': f"opcode {item['opcode']} params map candidate at 0x{item['offset']:x}",
+                            'source': {
+                                'm9_chunk': 10 + chapter,
+                                'offset': item['offset'],
+                                'opcode': item['opcode'],
+                            },
+                        }
+                    )
 
         inferred_candidates = []
         for g in graphics_sets:
@@ -180,6 +199,10 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
 
         row['direct_refs'] = _keep_valid_refs(project, direct_candidates, dropped_invalid_refs)
         row['inferred_refs'] = _keep_valid_refs(project, inferred_candidates, dropped_invalid_refs)
+        row['map_pack_candidates'] = {
+            'direct_refs': [entry for entry in row['direct_refs'] if entry['kind'] in ('map_pack', 'm9_common_m6_ref')],
+            'inferred_refs': [entry for entry in row['inferred_refs'] if entry['kind'] == 'graphics_pack'],
+        }
 
         rows.append(row)
         all_refs.extend([entry['ref'] for entry in direct_candidates])
