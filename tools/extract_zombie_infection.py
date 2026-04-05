@@ -7,7 +7,7 @@ from tools.common import JarProject, ensure_dir, write_json
 from tools.decode_audio_m13 import decode_audio
 from tools.decode_graphics import decode_graphics
 from tools.decode_maps import build_final_table, decode_maps
-from tools.decode_text_t0 import decode_text
+from tools.decode_text_t0 import ENCODING_CHAIN, decode_text
 from tools.linker import build_chapter_matrix
 from tools.parse_packs import parse_packs
 
@@ -30,12 +30,12 @@ def export_ui(project: JarProject, output: Path) -> dict:
     return result
 
 
-def run_extractor(jar: Path, output: Path) -> dict:
+def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) -> dict:
     project = JarProject(jar, output)
     project.load()
     ensure_dir(output)
     chunks = parse_packs(jar, output)
-    text = decode_text(jar, output)
+    text = decode_text(jar, output, strings_encoding=strings_encoding)
     audio = decode_audio(jar, output)
     maps_bundle = decode_maps(jar, output)
     graphics = decode_graphics(jar, output)
@@ -71,8 +71,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Full extractor for 240x320-rus-zombie-infection.jar')
     parser.add_argument('jar', type=Path)
     parser.add_argument('-o', '--output', type=Path, default=Path('.artifacts/extractor_out'))
+    parser.add_argument('--strings-encoding', choices=ENCODING_CHAIN, help='Force encoding for t0 text chunks')
     args = parser.parse_args()
-    run_extractor(args.jar, args.output)
+    run_extractor(args.jar, args.output, strings_encoding=args.strings_encoding)
 
 
 if __name__ == '__main__':
