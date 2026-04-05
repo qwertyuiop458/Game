@@ -277,6 +277,10 @@ def _candidate_external_chunks(container_payloads: list[bytes], table_chunk_inde
     return candidates
 
 
+def _hypothesis_id(pack_name: str, chunk_index: int) -> str:
+    return f'HYP-{pack_name}-{chunk_index:02d}-01'
+
+
 def decode_graphics(jar: Path, output: Path) -> dict:
     project = JarProject(jar, output)
     project.load()
@@ -312,6 +316,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             if not atlas.frames or not atlas.palettes:
                 continue
 
+            hypothesis_id = _hypothesis_id(name, chunk_index)
             pack_dir = sprites_dir / name / f'chunk_{chunk_index:02d}'
             ensure_dir(pack_dir)
 
@@ -356,6 +361,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             metadata['exported_frames'] = exported_frames
             metadata['palette_previews'] = _export_palette_previews(output, atlas, f'{name}_chunk{chunk_index:02d}')
             metadata['tile_preview'] = _export_frame_grid(output, atlas, exported_frames, f'{name}_chunk{chunk_index:02d}')
+            metadata['hypothesis_id'] = hypothesis_id
 
             metadata_path = pack_dir / 'metadata.json'
             write_json(metadata_path, metadata)
@@ -379,6 +385,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 {
                     'pack': name,
                     'chunk': chunk_index,
+                    'hypothesis_id': hypothesis_id,
                     'pixel_format': atlas.pixel_format,
                     'frames': exported_frames,
                     'payloads': [asdict(payload) for payload in sprite.payloads],
@@ -387,6 +394,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
             )
             container_manifest['chunks'].append({
                 'chunk': chunk_index,
+                'hypothesis_id': hypothesis_id,
                 'metadata': str(metadata_path.relative_to(output)),
                 'manifest': str(manifest_path.relative_to(output)),
                 'images_metadata': str(image_chunk_metadata_path.relative_to(output)),
@@ -396,6 +404,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 {
                     'pack': name,
                     'chunk': chunk_index,
+                    'hypothesis_id': hypothesis_id,
                     'sprite_manifest': str(manifest_path.relative_to(output)),
                     'sprite_metadata': str(metadata_path.relative_to(output)),
                     'frame_links': [
@@ -410,7 +419,9 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     ],
                 }
             )
-            graphics_manifest['trace'].append(_build_chunk_trace(name, chunk_index, sprite, atlas))
+            trace = _build_chunk_trace(name, chunk_index, sprite, atlas)
+            trace['hypothesis_id'] = hypothesis_id
+            graphics_manifest['trace'].append(trace)
 
         if container_manifest['chunks']:
             result['containers'][name] = container_manifest
