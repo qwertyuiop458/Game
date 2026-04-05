@@ -10,6 +10,10 @@
 - `expected.json` — зафиксированные метаданные сравнения,
 - `case.json` — манифест кейса (описание и имена файлов).
 
+На текущий момент в наборе есть кейсы с inline/external payload и разными
+форматами индексов/палитр (`INDEX_8`, `PACKED_4`, `PACKED_2`,
+`ARGB8888`, `RGB4444`, `RGB565_ALPHA_KEY`).
+
 ## Что проверяется
 
 Проверка выполняется утилитой `tools/reference_cases.py` и тестом
@@ -32,23 +36,28 @@
 ```bash
 python3 -m tools.reference_cases
 pytest -q tests/test_graphics_reference_cases.py
+pytest -q tests/test_graphics_decoder.py
 ```
 
 ## Осознанное обновление эталонов
 
 Если декодер изменился намеренно и новый результат корректный:
 
-1. Обновите эталоны:
+1. Обновите эталоны (только при явном подтверждении):
 
 ```bash
-python3 -m tools.reference_cases --update
+python3 -m tools.reference_cases --update --confirm-update
 ```
+
+Без `--confirm-update` утилита завершится с ошибкой. Это защита от
+случайного переписывания `expected.json`/`preview.png.b64`.
 
 2. Перезапустите проверку:
 
 ```bash
 python3 -m tools.reference_cases
 pytest -q tests/test_graphics_reference_cases.py
+pytest -q tests/test_graphics_decoder.py
 ```
 
 3. В PR обязательно укажите:

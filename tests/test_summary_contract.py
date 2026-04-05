@@ -63,6 +63,8 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
                 'total_maps': 1,
                 'mismatched_maps': 0,
                 'mismatch_details': [],
+                'maps_validation_passed': 1,
+                'maps_validation_failed': 0,
             },
         },
     )
@@ -98,9 +100,12 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'text',
         'audio',
         'audio_stats',
+        'audio_validation_summary',
         'maps',
         'scripts',
         'map_mismatch_summary',
+        'maps_validation_passed',
+        'maps_validation_failed',
         'audio_coverage',
         'graphics',
         'ui',
@@ -118,9 +123,12 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(summary['text'], dict)
     assert isinstance(summary['audio'], dict)
     assert isinstance(summary['audio_stats'], dict)
+    assert isinstance(summary['audio_validation_summary'], dict)
     assert isinstance(summary['maps'], dict)
     assert isinstance(summary['scripts'], dict)
     assert isinstance(summary['map_mismatch_summary'], dict)
+    assert isinstance(summary['maps_validation_passed'], int)
+    assert isinstance(summary['maps_validation_failed'], int)
     assert isinstance(summary['audio_coverage'], dict)
     assert isinstance(summary['graphics'], dict)
     assert isinstance(summary['ui'], dict)

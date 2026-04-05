@@ -7,6 +7,15 @@ from tools.common import JarProject, ensure_dir, sanitize_text, u32le, write_jso
 
 
 ENCODING_CHAIN = ('utf-8', 'cp1251', 'latin-1')
+_NONSTANDARD_LINE_SEPARATORS = '\r\x0b\x0c\x1e\x85\u2028\u2029\u2026'
+
+
+def sanitize_decoded_text(decoded: str) -> str:
+    normalized = decoded.replace('\r\n', '\n').replace('\r', '\n')
+    for separator in _NONSTANDARD_LINE_SEPARATORS:
+        normalized = normalized.replace(separator, '\n')
+    normalized = normalized.replace('\ufffd', ' ')
+    return sanitize_text(normalized)
 
 
 def text_metrics(text: str, segment_count: int) -> dict:

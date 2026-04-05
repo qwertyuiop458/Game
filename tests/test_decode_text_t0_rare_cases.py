@@ -24,6 +24,11 @@ def noisy_text_cases() -> list[tuple[str, bytes, str]]:
             b'Hi, ' + 'Привет'.encode('cp1251') + b'\x00\x02',
             'Hi, Привет  ',
         ),
+        (
+            'windows_and_legacy_separators',
+            b'row1\r\nrow2\x85row3\x1erow4',
+            'row1\nrow2\nrow3\nrow4',
+        ),
     ]
 
 
@@ -34,6 +39,19 @@ def partially_broken_offset_chunk() -> bytes:
     table = b''.join(value.to_bytes(4, 'little') for value in offsets)
     blob = b'ABCDE12345xx\x00yy\tQ R\x00END'
     return table + blob
+
+
+@pytest.fixture
+def rare_segment_blob() -> tuple[bytes, list[int], list[str], str]:
+    combined = (
+        b'HP:\x0010'
+        + b'Name:\x85Boss'
+        + b'Raw:' + 'Привет'.encode('cp1251') + b'\x00\x02'
+    )
+    offsets = [6, 16]
+    expected_segments = ['HP: 10', 'Name:\nBoss', 'Raw:Привет  ']
+    expected_reconstructed = 'HP: 10\nName:\nBoss\nRaw:Привет  \n'
+    return combined, offsets, expected_segments, expected_reconstructed
 
 
 @pytest.mark.decode
@@ -50,6 +68,21 @@ def test_noisy_cases_do_not_crash_and_are_deterministic(noisy_text_cases: list[t
 def test_sanitize_text_is_predictable_for_controls_and_nulls():
     raw = 'A\x00B\x01C\x1fD\tE\nF'
     assert sanitize_text(raw) == 'A B C D\tE\nF'
+
+
+@pytest.mark.decode
+@pytest.mark.extractor
+def test_export_strings_has_explicit_reconstruction_for_rare_sequences(
+    rare_segment_blob: tuple[bytes, list[int], list[str], str],
+):
+    combined, offsets, expected_segments, expected_reconstructed = rare_segment_blob
+
+    strings = export_strings(combined, offsets)
+    actual_segments = [item['text'] for item in strings]
+    reconstructed = ''.join(f'{text}\n' for text in actual_segments)
+
+    assert actual_segments == expected_segments
+    assert reconstructed == expected_reconstructed
 
 
 @pytest.mark.decode
