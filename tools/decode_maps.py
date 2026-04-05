@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +68,167 @@ def parse_tile_chunk(chunk: bytes) -> dict[str, Any]:
         'tile_range': [min(values), max(values)],
         'nonzero_cells': sum(1 for value in values if value),
     }
+
+
+def _partition_even(items: list[Any], chapter: int, chapter_count: int) -> list[Any]:
+    if not items:
+        return []
+    block = max(1, (len(items) + max(1, chapter_count) - 1) // max(1, chapter_count))
+    start = chapter * block
+    end = min(len(items), start + block)
+    if start >= len(items):
+        return []
+    return items[start:end]
+
+
+def _collect_story_markers(output: Path, text_report: dict[str, Any] | None) -> list[str]:
+    if not text_report:
+        return []
+    markers: list[str] = []
+    seen: set[str] = set()
+    keywords = (
+        'glt', 'gtv', 'телест', 'центр', 'бар', 'озер', 'лес', 'лаборатор',
+        'кладбищ', 'пожар', 'зоопарк', 'секрет', 'ротванг', 'улиц',
+    )
+    for chunk in text_report.get('chunks', []):
+        rel = chunk.get('segment_guess_path')
+        if not rel:
+            continue
+        path = output / rel
+        if not path.exists():
+            continue
+        data = json.loads(path.read_text(encoding='utf-8'))
+        for item in data.get('strings', []):
+            text = re.sub(r'\s+', ' ', item.get('text', '')).strip()
+            lowered = text.lower()
+            if len(text) < 8:
+                continue
+            if not any(keyword in lowered for keyword in keywords):
+                continue
+            if text not in seen:
+                seen.add(text)
+                markers.append(text)
+    return markers
+
+
+def build_chapter_mission_matrix(
+    project: JarProject,
+    output: Path,
+    maps_report: dict[str, Any],
+    script_report: dict[str, Any],
+    audio_report: dict[str, Any],
+    text_report: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    chapter_indices = sorted(
+        int(name.split('_')[1])
+        for name in maps_report
+        if name.startswith('m6_') and name.split('_')[1].isdigit()
+    )
+    if not chapter_indices:
+        chapter_indices = list(range(6))
+    chapter_count = len(chapter_indices)
+
+    graphics_packs = [name for name in ('m3_0', 'm4_0', 'm11_0', 'm11_1') if name in project.containers]
+    m8_count = len(project.containers['m8'].payloads) if 'm8' in project.containers else 0
+    m9_payloads = project.containers['m9'].payloads if 'm9' in project.containers else []
+
+    midi_assets = [Path(path).stem for path in audio_report.get('midi', [])]
+    raw_assets = [Path(item['path']).stem for item in audio_report.get('raw_audio', [])]
+    story_markers = _collect_story_markers(output, text_report)
+
+    chapter_story_keywords = {
+        0: ('glt', 'телест', 'центр', 'вост', 'gltцентр'),
+        1: ('бар', 'склад', 'улиц', 'джо'),
+        2: ('озер', 'лес', 'лагер'),
+        3: ('лаборатор', 'кладбищ', 'ротванг'),
+        4: ('пожар', 'зоопарк'),
+        5: ('секрет', 'финал', 'ротванг'),
+    }
+
+    rows: list[dict[str, Any]] = []
+    for chapter in chapter_indices:
+        map_pack = f'm6_{chapter}'
+        map_count = maps_report.get(map_pack, {}).get('map_count', 0)
+        m8_ref = f'm8#{chapter:02d}' if chapter < m8_count else None
+        m9_chunk = 10 + chapter
+        m9_ref = f'm9#{m9_chunk:02d}' if m9_chunk < len(m9_payloads) else None
+
+        enemy_ids: list[int] = []
+        if m9_ref:
+            parsed = parse_script_chunk_semantic(m9_payloads[m9_chunk])
+            for command in parsed.get('commands', []):
+                for placement in command.get('object_placements', []):
+                    object_id = placement.get('object_id')
+                    if isinstance(object_id, int):
+                        enemy_ids.append(object_id)
+        unique_enemy_ids = sorted(set(enemy_ids))
+        enemy_label = (
+            ', '.join(f'obj#{value}' for value in unique_enemy_ids[:6])
+            if unique_enemy_ids else
+            'не выделены (нет явных object_placements в m9)'
+        )
+
+        chapter_markers = []
+        for marker in story_markers:
+            lowered = marker.lower()
+            if any(keyword in lowered for keyword in chapter_story_keywords.get(chapter, ())):
+                chapter_markers.append(marker)
+        if not chapter_markers:
+            chapter_markers = _partition_even(story_markers, chapter, chapter_count)
+
+        mission = chapter_markers[0] if chapter_markers else f'Chapter {chapter + 1}'
+        key_story = chapter_markers[:3] if chapter_markers else ['(нет явных маркеров в t0)']
+
+        rows.append({
+            'chapter': chapter,
+            'mission': mission,
+            'map pack': {'id': map_pack, 'map_count': map_count, 'm8_link': m8_ref},
+            'graphics pack': graphics_packs,
+            'audio assets': {
+                'midi': [f'm13:{name}' for name in _partition_even(midi_assets, chapter, chapter_count)],
+                'raw': [f'm13:{name}' for name in _partition_even(raw_assets, chapter, chapter_count)],
+            },
+            'key enemies': enemy_label,
+            'key story events': key_story,
+            'sources': {
+                'm9_script': m9_ref,
+                'm8_mission': m8_ref,
+                'm6_map_pack': map_pack,
+                'graphics': graphics_packs,
+                'audio': ['m13_1', 'm13_2'],
+                't0_chunks': [chunk['chunk_index'] for chunk in (text_report or {}).get('chunks', [])],
+            },
+        })
+
+    meta_dir = output / 'extracted' / 'meta'
+    ensure_dir(meta_dir)
+    json_path = meta_dir / 'chapter_mission_matrix.json'
+    md_path = meta_dir / 'chapter_mission_matrix.md'
+    write_json(json_path, rows)
+
+    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'key enemies', 'key story events']
+    lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
+    for row in rows:
+        map_col = f"{row['map pack']['id']} ({row['map pack']['map_count']} maps, m8={row['map pack']['m8_link'] or '-'})"
+        graphics_col = ', '.join(row['graphics pack']) if row['graphics pack'] else '-'
+        audio_col = (
+            'MIDI: ' + (', '.join(row['audio assets']['midi']) or '-') + '<br>'
+            + 'RAW: ' + (', '.join(row['audio assets']['raw']) or '-')
+        )
+        story_col = '<br>'.join(row['key story events']) if row['key story events'] else '-'
+        lines.append(
+            '| ' + ' | '.join([
+                str(row['chapter']),
+                str(row['mission']).replace('\n', ' '),
+                map_col,
+                graphics_col,
+                audio_col,
+                str(row['key enemies']),
+                story_col.replace('\n', ' '),
+            ]) + ' |'
+        )
+    md_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    return rows
 
 
 def build_final_table(project: JarProject, output: Path, maps_report: dict, script_report: dict, audio_report: dict, text_report: dict) -> list[dict[str, Any]]:
