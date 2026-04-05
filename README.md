@@ -91,10 +91,10 @@ Top-level structure written by the orchestrator:
 │  └─ decoded/
 ├─ docs/
 │  └─ reverse_engineering/
-│     ├─ chapter_matrix.json
-│     ├─ chapter_matrix.md
-│     ├─ chapter_mission_matrix.json
-│     └─ final_asset_table.{json,md}
+│     ├─ chapter_matrix.json               # generated at runtime
+│     ├─ chapter_matrix.md                 # generated at runtime
+│     ├─ chapter_mission_matrix.json       # generated at runtime
+│     └─ final_asset_table.{json,md}       # generated at runtime
 ├─ summary.json
 └─ ...
 ```
@@ -109,6 +109,13 @@ Top-level structure written by the orchestrator:
 - reverse-engineering notes plus the requested chapter/mission summary table under `docs/reverse_engineering/`;
 - machine-readable `summary.json` tying the above artifacts together.
 - chapter dependency matrix in JSON/Markdown (`chapter_matrix.json`, `chapter_matrix.md`) with direct/inferred links and cross-check status.
+- chapter matrix artifacts are **runtime-generated** (not stored in git):  
+  - generated under `<output_dir>/docs/reverse_engineering/chapter_matrix.json`;  
+  - generated under `<output_dir>/docs/reverse_engineering/chapter_matrix.md`;  
+  - generated under `<output_dir>/docs/reverse_engineering/chapter_mission_matrix.json`;  
+  - generated under `<output_dir>/docs/reverse_engineering/final_asset_table.json`;  
+  - generated under `<output_dir>/docs/reverse_engineering/final_asset_table.md`.  
+  With default settings, these files appear in `.artifacts/extractor_out/docs/reverse_engineering/`.
 - UI resources copied from the original JAR under `extracted/ui/`:
   - `icon.png`
   - `dataIGP`
@@ -129,6 +136,8 @@ unzip -p 240x320-rus-zombie-infection.jar dataIGP > extracted/ui/dataIGP
 ## Repository policy
 
 Generated extractor output is intentionally **not committed** to this repository. Run the extractor locally or in CI/GitHub artifacts when you need the binary dumps and derived previews.
+
+This policy includes chapter/mission matrix outputs (`chapter_matrix.*`, `chapter_mission_matrix.*`, `final_asset_table.*`): they are generated during extractor execution and should be read from `<output_dir>/docs/reverse_engineering/` (default: `.artifacts/extractor_out/docs/reverse_engineering/`).
 
 ## Iteration 1 coverage
 
