@@ -72,6 +72,44 @@ tap_text_if_present() {
   return 1
 }
 
+grant_storage_permissions() {
+  set +e
+  adb shell pm grant "$PACKAGE_NAME" android.permission.READ_EXTERNAL_STORAGE >/dev/null 2>&1
+  adb shell pm grant "$PACKAGE_NAME" android.permission.WRITE_EXTERNAL_STORAGE >/dev/null 2>&1
+  set -e
+}
+
+resolve_launcher_activity() {
+  adb shell cmd package resolve-activity --brief "$PACKAGE_NAME" \
+    | tr -d '\r' \
+    | awk 'NF{last=$0} END{print last}'
+}
+
+launch_package() {
+  local activity
+  activity="$(resolve_launcher_activity || true)"
+
+  if [[ -n "$activity" && "$activity" == *"/"* ]]; then
+    log "Launch via explicit activity: $activity"
+    adb shell am start -W -n "$activity" || true
+  else
+    log "Fallback launch via monkey"
+    adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1 || true
+  fi
+}
+
+try_open_jar_via_intents() {
+  adb shell am start -W \
+    -a android.intent.action.VIEW \
+    -d "file://$JAR_DEVICE_PATH" \
+    -t "application/java-archive" || true
+
+  adb shell am start -W \
+    -a android.intent.action.VIEW \
+    -d "file://$JAR_DEVICE_PATH" \
+    -t "application/octet-stream" || true
+}
+
 collect_artifacts() {
   set +e
   adb logcat -d >"$ARTIFACT_DIR/logcat.txt" 2>/dev/null
@@ -122,7 +160,7 @@ assert_outcome() {
     package_visible=1
   fi
 
-  if grep -Eiq "(game\.jar|$expected_jar_name|midlet|javax\.microedition|j2me)" "$dump_file" "$log_file" 2>/dev/null; then
+  if grep -Eiq "(game\.jar|$expected_jar_name|midlet|javax\.microedition|j2me|load jar|install midlet)" "$dump_file" "$log_file" 2>/dev/null; then
     jar_hint_visible=1
   fi
 
@@ -152,6 +190,7 @@ adb shell settings put global animator_duration_scale 0
 
 log "Install emulator APK: $APK_PATH"
 adb install -r "$APK_PATH"
+grant_storage_permissions
 
 log "Push JAR into shared storage"
 adb shell mkdir -p /sdcard/Download
@@ -160,20 +199,22 @@ adb push "$JAR_PATH" "$JAR_DEVICE_PATH"
 log "Clear previous logs"
 adb logcat -c
 
-log "Launch app via launcher intent"
-adb shell monkey -p "$PACKAGE_NAME" -c android.intent.category.LAUNCHER 1
+log "Launch app"
+launch_package
 sleep 4
 
-log "Try ACTION_VIEW file intent"
-adb shell am start \
-  -a android.intent.action.VIEW \
-  -d "file://$JAR_DEVICE_PATH" \
-  -t "application/java-archive" || true
+log "Try opening JAR via intents"
+try_open_jar_via_intents
 sleep 4
 
 log "Try tapping common import/open labels if visible"
 tap_text_if_present "Import" || true
 tap_text_if_present "Open" || true
+tap_text_if_present "Start" || true
+tap_text_if_present "Run" || true
+tap_text_if_present "Импорт" || true
+tap_text_if_present "Открыть" || true
+tap_text_if_present "Запустить" || true
 tap_text_if_present "game.jar" || true
 tap_text_if_present "Download" || true
 sleep 3
@@ -181,7 +222,7 @@ sleep 3
 log "Try launching game entry if it appears"
 tap_text_if_present "game" || true
 tap_text_if_present "240x320" || true
-tap_text_if_present "start" || true
+tap_text_if_present "zombie" || true
 sleep 3
 
 collect_artifacts

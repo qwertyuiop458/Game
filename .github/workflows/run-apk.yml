@@ -8,6 +8,12 @@ on:
         type: boolean
         required: true
         default: true
+  pull_request:
+    paths:
+      - '.github/workflows/run-apk.yml'
+      - 'tools/ci/launch_j2me_in_emulator.sh'
+      - 'ru.playsoftware.j2meloader-101.apk'
+      - '240x320-rus-zombie-infection.jar'
   push:
     paths:
       - '.github/workflows/run-apk.yml'
@@ -46,6 +52,16 @@ jobs:
               ru.playsoftware.j2meloader-101.apk \
               240x320-rus-zombie-infection.jar \
               .artifacts/emulator
+
+      - name: Print run status
+        if: always()
+        run: |
+          if [ -f .artifacts/emulator/result.env ]; then
+            cat .artifacts/emulator/result.env
+          else
+            echo "status=missing"
+            echo "reason=result.env not generated"
+          fi
 
       - name: Upload emulator artifacts
         if: always()
