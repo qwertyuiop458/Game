@@ -71,6 +71,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'container_quality',
         'text',
         'audio',
+        'audio_stats',
         'maps',
         'scripts',
         'graphics',
@@ -79,6 +80,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         'chapter_mission_matrix_rows',
         'chapter_matrix_rows',
         'chapter_matrix_cross_check',
+        'map_validation_summary',
     }
     assert set(summary) == expected_keys
 
@@ -87,6 +89,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(summary['container_quality'], dict)
     assert isinstance(summary['text'], dict)
     assert isinstance(summary['audio'], dict)
+    assert isinstance(summary['audio_stats'], dict)
     assert isinstance(summary['maps'], dict)
     assert isinstance(summary['scripts'], dict)
     assert isinstance(summary['graphics'], dict)
@@ -95,6 +98,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(summary['chapter_mission_matrix_rows'], int)
     assert isinstance(summary['chapter_matrix_rows'], int)
     assert isinstance(summary['chapter_matrix_cross_check'], dict)
+    assert summary['audio_stats'] == {'valid_midi': 0, 'invalid_midi': 0, 'raw_audio': 0}
 
     for quality in summary['container_quality'].values():
         assert isinstance(quality.get('validation_errors'), list)
