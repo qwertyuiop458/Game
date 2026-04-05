@@ -1,0 +1,72 @@
+name: Run J2ME APK + JAR
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict_mode:
+        description: "Fail workflow if JAR start cannot be confirmed from emulator signals"
+        type: boolean
+        required: true
+        default: true
+  pull_request:
+    paths:
+      - '.github/workflows/run-apk.yml'
+      - 'tools/ci/launch_j2me_in_emulator.sh'
+      - 'ru.playsoftware.j2meloader-101.apk'
+      - '240x320-rus-zombie-infection.jar'
+  push:
+    paths:
+      - '.github/workflows/run-apk.yml'
+      - 'tools/ci/launch_j2me_in_emulator.sh'
+      - 'ru.playsoftware.j2meloader-101.apk'
+      - '240x320-rus-zombie-infection.jar'
+
+jobs:
+  run-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Enable KVM access
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch emulator, install APK, run JAR
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          STRICT_MODE: ${{ github.event_name == 'workflow_dispatch' && (inputs.strict_mode && '1' || '0') || '1' }}
+        with:
+          api-level: 30
+          arch: x86_64
+          profile: pixel_4
+          force-avd-creation: false
+          disable-animations: true
+          emulator-options: -no-snapshot -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            bash tools/ci/launch_j2me_in_emulator.sh \
+              ru.playsoftware.j2meloader-101.apk \
+              240x320-rus-zombie-infection.jar \
+              .artifacts/emulator
+
+      - name: Print run status
+        if: always()
+        run: |
+          if [ -f .artifacts/emulator/result.env ]; then
+            cat .artifacts/emulator/result.env
+          else
+            echo "status=missing"
+            echo "reason=result.env not generated"
+          fi
+
+      - name: Upload emulator artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-output
+          path: .artifacts/emulator
+          if-no-files-found: warn
