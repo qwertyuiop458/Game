@@ -39,6 +39,7 @@ class Frame:
     pivot_x: int
     pivot_y: int
     palette_index: int
+    palette_binding: str
     image_payload: ImagePayload | None = None
 
 
@@ -61,6 +62,7 @@ class Sprite:
     frames: list[Frame]
     regions: list[Region]
     payloads: list[ImagePayload]
+    composition_rules: dict[str, Any]
     metadata_path: str
     manifest_path: str
 
@@ -157,6 +159,7 @@ def _build_sprite_model(
             pivot_x=frame.x,
             pivot_y=frame.y,
             palette_index=0,
+            palette_binding='runtime-selected',
             image_payload=payload_by_frame.get(frame.index),
         )
         for frame in atlas.frames
@@ -174,6 +177,32 @@ def _build_sprite_model(
         )
         for palette in atlas.palettes
     ]
+    composition_rules = {
+        'reconstruction_source': {
+            'atlas_core': 'a.class',
+            'container_loader': 'g.class',
+            'sprite_instance': 'c.class',
+        },
+        'image_payload_decode': {
+            'payload_layout': 'frame-length table in atlas chunk, raw payload stream may continue in following chunks',
+            'codec_switch': {
+                '25840': 'RLE_ALPHA_8',
+                '10225': 'RLE_8_A',
+                '22258': 'RLE_8_B',
+                '5632': 'PACKED_4',
+                '2048': 'PACKED_3',
+                '1024': 'PACKED_2',
+                '512': 'PACKED_1',
+                '22018': 'INDEX_8',
+            },
+        },
+        'palette_binding': {
+            'runtime_mode': 'selected by runtime sprite instance (c.class) via active palette slot in atlas core (a.class)',
+            'default_palette': 0,
+            'available_palettes': len(atlas.palettes),
+            'per_frame_remap': 'optional remap table supported by a.class; metadata exposes palette index stream without mutating source data',
+        },
+    }
     return Sprite(
         container=container,
         chunk=chunk_index,
@@ -183,6 +212,7 @@ def _build_sprite_model(
         frames=sprite_frames,
         regions=sprite_regions,
         payloads=payloads,
+        composition_rules=composition_rules,
         metadata_path=metadata_path,
         manifest_path=manifest_path,
     )
@@ -191,6 +221,7 @@ def _build_sprite_model(
 def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     return {
         'runtime_roles': sprite.runtime_roles,
+        'composition_rules': sprite.composition_rules,
         'format_reconstruction': {
             'image_payload_blocks': [asdict(payload) for payload in sprite.payloads],
             'frame_table': [asdict(frame) for frame in sprite.frames],
@@ -220,11 +251,9 @@ def decode_graphics(jar: Path, output: Path) -> dict:
 
     sprites_dir = output / 'extracted' / 'sprites'
     extracted_images_dir = output / 'extracted' / 'images'
-    decoded_dir = output / 'images' / 'decoded'
     extracted_meta_dir = output / 'extracted' / 'meta'
     ensure_dir(sprites_dir)
     ensure_dir(extracted_images_dir)
-    ensure_dir(decoded_dir)
     ensure_dir(output / 'extracted' / 'tiles')
     ensure_dir(extracted_meta_dir)
 
@@ -276,7 +305,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     continue
                 width, height, rgba = decoded
 
-                png_path = decoded_dir / f'{name}_chunk{chunk_index:02d}_frame{frame.index:03d}.png'
+                png_path = extracted_images_dir / name / f'chunk_{chunk_index:02d}' / f'frame_{frame.index:03d}.png'
                 write_rgba_png(png_path, width, height, rgba)
                 rel = str(png_path.relative_to(output))
                 png_paths[frame.index] = rel
@@ -339,7 +368,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
         if container_manifest['chunks']:
             result['containers'][name] = container_manifest
 
-    write_json(decoded_dir / 'index.json', result)
+    write_json(extracted_images_dir / 'index.json', result)
     write_json(extracted_meta_dir / 'graphics_manifest.json', graphics_manifest)
     return result
 
