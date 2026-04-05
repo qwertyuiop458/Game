@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import struct
 import zipfile
@@ -91,6 +92,9 @@ class ChunkInfo:
     absolute_start: int
     absolute_end: int
     size: int
+    crc32_hex: str
+    sha1: str
+    # Backward-compatible alias; can be removed after downstream consumers migrate to crc32_hex.
     crc32: str
 
 
@@ -231,6 +235,9 @@ class Container:
                 absolute_start=abs_start,
                 absolute_end=abs_end,
                 size=len(chunk),
+                crc32_hex=f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
+                sha1=hashlib.sha1(chunk).hexdigest(),
+                # Backward-compatible alias; mirrors crc32_hex.
                 crc32=f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
             ).__dict__)
         return {
