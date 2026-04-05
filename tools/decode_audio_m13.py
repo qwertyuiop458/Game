@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import math
+import zlib
 from collections import Counter
 from pathlib import Path
 
@@ -87,15 +87,13 @@ def decode_audio(jar: Path, output: Path) -> dict:
     project.load()
     audio_dir = output / 'extracted' / 'audio'
     ensure_dir(audio_dir)
+    signature_registry: list[dict[str, str | int]] = []
     out = {
         'midi': [],
-        'invalid_midi': [],
         'raw_audio': [],
-        'counts': {
-            'valid_midi': 0,
-            'invalid_midi': 0,
-            'raw_audio': 0,
-        },
+        'invalid_audio': [],
+        'signature_registry': str((audio_dir / 'signatures.json').relative_to(output)),
+        'stats': {'valid': 0, 'invalid': 0, 'raw': 0},
     }
     for name in ('m13_1', 'm13_2'):
         container = project.containers.get(name)
@@ -108,31 +106,49 @@ def decode_audio(jar: Path, output: Path) -> dict:
             if not chunk:
                 coverage['empty_chunks'] += 1
                 continue
-            if b'MThd' in chunk:
-                start = chunk.index(b'MThd')
-                midi_blob = chunk[start:]
-                reason = validate_midi_blob(midi_blob)
-                path = pack_dir / f'{idx:02d}.mid'
-                path.write_bytes(midi_blob)
-                if reason is None:
+            try:
+                if b'MThd' in chunk:
+                    start = chunk.index(b'MThd')
+                    path = pack_dir / f'{idx:02d}.mid'
+                    payload = chunk[start:]
+                    path.write_bytes(payload)
                     out['midi'].append(str(path.relative_to(output)))
-                    out['counts']['valid_midi'] += 1
+                    out['stats']['valid'] += 1
+                    signature_registry.append({
+                        'container': name,
+                        'chunk_index': idx,
+                        'kind': 'midi',
+                        'path': str(path.relative_to(output)),
+                        'size': len(payload),
+                        'crc32_hex': f'{zlib.crc32(payload) & 0xFFFFFFFF:08x}',
+                        'sha1': hashlib.sha1(payload).hexdigest(),
+                    })
                 else:
+                    path = pack_dir / f'{idx:02d}.bin'
                     meta = pack_dir / f'{idx:02d}.json'
-                    write_json(meta, {'kind': 'invalid_midi', 'reason': reason, 'size': len(midi_blob)})
-                    out['invalid_midi'].append({
+                    path.write_bytes(chunk)
+                    write_json(meta, analyse_audio_blob(chunk))
+                    out['raw_audio'].append({'path': str(path.relative_to(output)), 'meta': str(meta.relative_to(output))})
+                    out['stats']['valid'] += 1
+                    out['stats']['raw'] += 1
+                    signature_registry.append({
+                        'container': name,
+                        'chunk_index': idx,
+                        'kind': 'raw',
                         'path': str(path.relative_to(output)),
                         'meta': str(meta.relative_to(output)),
-                        'reason': reason,
+                        'size': len(chunk),
+                        'crc32_hex': f'{zlib.crc32(chunk) & 0xFFFFFFFF:08x}',
+                        'sha1': hashlib.sha1(chunk).hexdigest(),
                     })
-                    out['counts']['invalid_midi'] += 1
-            else:
-                path = pack_dir / f'{idx:02d}.bin'
-                meta = pack_dir / f'{idx:02d}.json'
-                path.write_bytes(chunk)
-                write_json(meta, analyse_audio_blob(chunk))
-                out['raw_audio'].append({'path': str(path.relative_to(output)), 'meta': str(meta.relative_to(output))})
-                out['counts']['raw_audio'] += 1
+            except Exception as exc:
+                out['stats']['invalid'] += 1
+                out['invalid_audio'].append({
+                    'container': name,
+                    'chunk_index': idx,
+                    'error': str(exc),
+                })
+    write_json(audio_dir / 'signatures.json', signature_registry)
     write_json(audio_dir / 'index.json', out)
     return out
 
