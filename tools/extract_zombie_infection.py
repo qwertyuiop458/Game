@@ -116,12 +116,15 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         'audio': audio,
         'maps': maps_bundle['maps'],
         'scripts': maps_bundle['scripts'],
+        'map_mismatch_summary': maps_bundle.get('map_mismatch_summary', {}),
+        'audio_coverage': audio.get('audio_coverage', {}),
         'graphics': graphics,
         'ui': ui,
         'final_table_rows': len(final_table),
         'chapter_mission_matrix_rows': len(chapter_mission_matrix),
         'chapter_matrix_rows': len(chapter_matrix.get('chapters', [])),
         'chapter_matrix_cross_check': chapter_matrix.get('cross_check', {}),
+        'linker_conflicts_summary': chapter_matrix.get('linker_conflicts_summary', {}),
     }
     write_json(output / 'summary.json', summary)
     return summary
