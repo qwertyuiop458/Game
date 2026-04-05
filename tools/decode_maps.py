@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import COMMON_WIDTHS, JarProject, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
+from tools.m9_semantics import build_chapter_mission_links
 from tools.script_parser import (
     build_opcode_coverage,
     build_semantic_level_exports,
@@ -117,15 +118,13 @@ def build_final_table(project: JarProject, output: Path, maps_report: dict, scri
             'mission': chapter_names[chapter],
             'map pack': f'm6_{chapter} ({map_counts.get(f"m6_{chapter}", 0)} maps)',
             'graphics pack': 'm3_0 + m4_0 + m7 + m11_0 + m11_1',
-            'audio assets': 'm13_1/m13_2 MIDI + raw cues',
+            'audio': 'm13_1/m13_2 MIDI + raw cues',
             'key enemies': enemy_hints[chapter],
             'key story events': story_hints[chapter],
-            'script pack': f'm9#{10 + chapter}',
-            'm8 linkage': f'm8#{chapter}',
         })
     md = output / 'docs' / 'reverse_engineering' / 'final_asset_table.md'
     ensure_dir(md.parent)
-    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio assets', 'key enemies', 'key story events', 'script pack', 'm8 linkage']
+    headers = ['chapter', 'mission', 'map pack', 'graphics pack', 'audio', 'key enemies', 'key story events']
     lines = ['| ' + ' | '.join(headers) + ' |', '| ' + ' | '.join(['---'] * len(headers)) + ' |']
     for row in rows:
         lines.append('| ' + ' | '.join(str(row[h]) for h in headers) + ' |')
@@ -143,18 +142,25 @@ def build_chapter_mission_matrix(
     text_report: dict,
 ) -> list[dict[str, Any]]:
     rows = []
+    mission_links = script_report.get('m9', {}).get('chapter_mission_links', {}).get('mission_links', [])
+    by_chapter = {chapter: [] for chapter in range(6)}
+    for item in mission_links:
+        by_chapter[item.get('chapter', 0) % 6].append(item)
+
     for chapter in range(6):
         map_pack = f'm6_{chapter}'
         map_count = maps_report.get(map_pack, {}).get('map_count', 0)
-        script_chunk = 10 + chapter
+        chapter_missions = sorted(by_chapter.get(chapter, []), key=lambda row: row.get('mission', 0))
         rows.append(
             {
                 'chapter': chapter,
-                'mission_index': chapter,
+                'mission_index': chapter_missions[0]['mission'] if chapter_missions else chapter,
                 'map_pack': map_pack,
                 'map_count': map_count,
                 'script_pack': 'm9',
-                'script_chunk_index': script_chunk,
+                'script_chunk_index': chapter_missions[0]['script_chunk'] if chapter_missions else 10 + chapter,
+                'mission_count': len(chapter_missions),
+                'missions': chapter_missions,
                 'audio_pack': 'm13',
                 'text_pack': 't0',
             }
@@ -264,12 +270,32 @@ def decode_maps(jar: Path, output: Path) -> dict:
             chunks = []
             for idx, chunk in enumerate(container.payloads):
                 parsed = parse_m8_chunk_semantic(chunk)
+                tile_layers = [ref for command in parsed['commands'] for ref in command.get('map_refs', [])]
+                collision_layers = [
+                    {'pack': ref.get('pack'), 'subchunk': ref.get('subchunk', 0) + 1}
+                    for ref in tile_layers
+                    if ref.get('subchunk') is not None
+                ]
+                triggers = [item for command in parsed['commands'] for item in command.get('triggers', [])]
+                objects = [item for command in parsed['commands'] for item in command.get('object_placements', [])]
                 path = docs_dir / f'm8_chunk_{idx:02d}.json'
                 write_json(path, parsed)
-                chunks.append({'chunk_index': idx, 'size': len(chunk), 'path': str(path.relative_to(output)), 'opcode_histogram': parsed['opcode_histogram']})
+                chunks.append(
+                    {
+                        'chunk_index': idx,
+                        'size': len(chunk),
+                        'path': str(path.relative_to(output)),
+                        'opcode_histogram': parsed['opcode_histogram'],
+                        'tile_layers': tile_layers,
+                        'collision_layers': collision_layers,
+                        'triggers': triggers,
+                        'objects': objects,
+                    }
+                )
             scripts['m8'] = {'chunk_count': len(chunks), 'chunks': chunks}
         elif name == 'm9':
             table_chunks = parse_m9_chunk_tables(container.payloads)
+            chapter_mission_links = build_chapter_mission_links(table_chunks)
             script_packs = []
             semantic_rows = []
             for idx, chunk in enumerate(container.payloads):
@@ -285,6 +311,15 @@ def decode_maps(jar: Path, output: Path) -> dict:
                     'opcode_histogram': parsed['opcode_histogram'],
                     'semantic_known_count': parsed['semantic_known_count'],
                     'semantic_unknown_count': parsed['semantic_unknown_count'],
+                    'tile_layers': [ref for command in parsed['commands'] for ref in command.get('map_refs', [])],
+                    'collision_layers': [
+                        {'pack': ref.get('pack'), 'subchunk': ref.get('subchunk', 0) + 1}
+                        for command in parsed['commands']
+                        for ref in command.get('map_refs', [])
+                        if ref.get('subchunk') is not None
+                    ],
+                    'triggers': [item for command in parsed['commands'] for item in command.get('triggers', [])],
+                    'objects': [item for command in parsed['commands'] for item in command.get('object_placements', [])],
                 })
                 semantic_rows.append({'chunk_index': idx, 'commands': parsed['commands']})
 
@@ -360,6 +395,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
 
             scripts['m9'] = {
                 **table_chunks,
+                'chapter_mission_links': chapter_mission_links,
                 'chunk10_plus_scripts': script_packs,
                 'semantic_levels': semantic_levels,
                 'opcode_coverage': opcode_coverage,
@@ -377,7 +413,17 @@ def decode_maps(jar: Path, output: Path) -> dict:
                 values = [u16le(chunk, pos) for pos in range(0, len(chunk) - (len(chunk) % 2), 2)]
                 path = docs_dir / f'm10_chunk_{idx:02d}.json'
                 write_json(path, {'chunk_index': idx, 'size': len(chunk), 'u16_count': len(values), 'u16_preview': values[:128], 'nonzero_values': sum(1 for value in values if value), 'max_u16': max(values) if values else 0})
-                chunks.append({'chunk_index': idx, 'size': len(chunk), 'path': str(path.relative_to(output))})
+                chunks.append(
+                    {
+                        'chunk_index': idx,
+                        'size': len(chunk),
+                        'path': str(path.relative_to(output)),
+                        'tile_layers': [],
+                        'collision_layers': [],
+                        'triggers': [],
+                        'objects': [],
+                    }
+                )
             scripts['m10'] = {'chapter_chunks': chunks}
 
     write_json(maps_dir / 'maps_index.json', report)
@@ -386,6 +432,15 @@ def decode_maps(jar: Path, output: Path) -> dict:
         'generated_by': 'tools.decode_maps',
         'm6_chunk_manifest': m6_chunk_manifest,
         'levels': sorted(level_manifest_entries, key=lambda row: row['level_index']),
+        'script_containers': {
+            'm8': scripts.get('m8', {}),
+            'm9': {
+                'chunk_count': len(scripts.get('m9', {}).get('chunk10_plus_scripts', [])),
+                'chapter_mission_links': scripts.get('m9', {}).get('chapter_mission_links', {}),
+                'level_exports': scripts.get('m9', {}).get('level_exports', []),
+            },
+            'm10': scripts.get('m10', {}),
+        },
     })
     write_json(output / 'docs' / 'reverse_engineering' / 'scripts_index.json', scripts)
     return {'maps': report, 'scripts': scripts}
