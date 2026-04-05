@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import JarProject, ensure_dir, write_json
-from tools.script_parser import parse_script_chunk_semantic
+from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semantic, resolve_level_trace
 
 
 def _map_entries(project: JarProject, chapter: int) -> list[dict[str, Any]]:
@@ -95,6 +95,12 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
     graphics_sets = [name for name in ('m3_0', 'm4_0', 'm11_0', 'm11_1') if name in project.containers]
     m8_container = project.containers.get('m8')
     m9_container = project.containers.get('m9')
+    m9_tables = parse_m9_chunk_tables(m9_container.payloads) if m9_container else {'chunk0_levels': {'levels': []}}
+    semantic_by_chunk: dict[int, dict[str, Any]] = {}
+    if m9_container:
+        for idx, payload in enumerate(m9_container.payloads):
+            if idx >= 10:
+                semantic_by_chunk[idx] = parse_script_chunk_semantic(payload)
 
     rows: list[dict[str, Any]] = []
     all_refs: list[dict[str, Any]] = []
@@ -120,49 +126,63 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
             },
         }
 
-        # Primary links from explicit chapter mapping.
+        level_matches = [
+            row for row in m9_tables.get('chunk0_levels', {}).get('levels', []) if row.get('chapter_hint', 0) % 6 == chapter
+        ]
+        if not level_matches:
+            level_matches = [{'level_index': chapter, 'map_subchunk_hint': 0, 'script_subchunk_hint': chapter}]
+        resolved_traces = [resolve_level_trace(int(item.get('level_index', chapter)), m9_tables) for item in level_matches]
+        row['script_chunks'] = {
+            'm8': sorted({f"m8#{trace.level_index:02d}" for trace in resolved_traces}) if m8_container else [],
+            'm9': sorted({f"m9#{trace.script_chunk:02d}" for trace in resolved_traces}) if m9_container else [],
+        }
+
+        # Primary links from semantic script/map relations.
         direct_candidates = [
             {'kind': 'map_pack', 'ref': _build_reference(f'm6_{chapter}'), 'confidence': 1.0, 'reason': 'chapter pack naming m6_<chapter>'},
-            {'kind': 'm8_script_chunk', 'ref': _build_reference('m8', chapter), 'confidence': 0.96, 'reason': 'chapter index maps directly to m8 chunk index'},
-            {'kind': 'm9_script_chunk', 'ref': _build_reference('m9', 10 + chapter), 'confidence': 0.95, 'reason': 'mission scripts are stored in m9 chunks 10..15'},
         ]
-
-        if m9_container and (10 + chapter) < len(m9_container.payloads):
-            parsed = parse_script_chunk_semantic(m9_container.payloads[10 + chapter])
+        for level_entry in level_matches:
+            level_index = int(level_entry.get('level_index', chapter))
+            trace = resolve_level_trace(level_index, m9_tables)
+            direct_candidates.append(
+                {
+                    'kind': 'm9_script_chunk_semantic',
+                    'ref': _build_reference('m9', trace.script_chunk),
+                    'confidence': 0.98,
+                    'reason': f'level {level_index} resolved by m9 chunk0 + 10+level/subchunk rule',
+                }
+            )
+            direct_candidates.append(
+                {
+                    'kind': 'm6_subchunk_semantic',
+                    'ref': _build_reference(f'm6_{trace.chapter}', trace.map_subchunk),
+                    'confidence': 0.9,
+                    'reason': f'level {level_index} map_subchunk_hint from m9 chunk0',
+                }
+            )
+            parsed = semantic_by_chunk.get(trace.script_chunk, {'commands': []})
             for item in parsed['commands']:
-                m8_ref = item.get('refs', {}).get('m8')
-                if not m8_ref:
-                    continue
-                direct_candidates.append(
-                    {
-                        'kind': 'm9_opcode99_m8_ref',
-                        'ref': _build_reference('m8', m8_ref['subchunk_index']),
-                        'confidence': m8_ref.get('confidence', 0.85),
-                        'reason': f"opcode {item['opcode']} at 0x{item['offset']:x} in m9#{10 + chapter:02d}",
-                        'source': {
-                            'm9_chunk': 10 + chapter,
-                            'offset': item['offset'],
-                            'opcode': item['opcode'],
-                            'm8_pack_index': m8_ref.get('pack_index'),
-                            'm8_subchunk_index': m8_ref.get('subchunk_index'),
-                        },
-                    }
-                )
-                m6_ref = item.get('refs', {}).get('m6')
-                if m6_ref and m6_ref.get('subchunk') is not None:
-                    direct_candidates.append(
-                        {
-                            'kind': 'm9_common_m6_ref',
-                            'ref': _build_reference(m6_ref['pack'], int(m6_ref['subchunk'])),
-                            'confidence': m6_ref.get('confidence', 0.6),
-                            'reason': f"opcode {item['opcode']} params map candidate at 0x{item['offset']:x}",
-                            'source': {
-                                'm9_chunk': 10 + chapter,
-                                'offset': item['offset'],
-                                'opcode': item['opcode'],
-                            },
-                        }
-                    )
+                for link in item.get('command_links', []):
+                    if link.get('target') == 'm8':
+                        direct_candidates.append(
+                            {
+                                'kind': 'm9_command_m8_semantic',
+                                'ref': _build_reference('m8', int(link['subchunk_index'])),
+                                'confidence': 0.9,
+                                'reason': f"m9#{trace.script_chunk:02d} opcode {item['opcode']} offset 0x{item['offset']:x}",
+                                'source': {'level_index': level_index, 'm9_chunk': trace.script_chunk, 'offset': item['offset']},
+                            }
+                        )
+                    if link.get('target') == 'm6':
+                        direct_candidates.append(
+                            {
+                                'kind': 'm9_command_m6_semantic',
+                                'ref': _build_reference(str(link['pack']), int(link['subchunk'])),
+                                'confidence': 0.82,
+                                'reason': f"m9#{trace.script_chunk:02d} opcode {item['opcode']} offset 0x{item['offset']:x}",
+                                'source': {'level_index': level_index, 'm9_chunk': trace.script_chunk, 'offset': item['offset']},
+                            }
+                        )
 
         inferred_candidates = []
         for g in graphics_sets:
@@ -200,7 +220,7 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         row['direct_refs'] = _keep_valid_refs(project, direct_candidates, dropped_invalid_refs)
         row['inferred_refs'] = _keep_valid_refs(project, inferred_candidates, dropped_invalid_refs)
         row['map_pack_candidates'] = {
-            'direct_refs': [entry for entry in row['direct_refs'] if entry['kind'] in ('map_pack', 'm9_common_m6_ref')],
+            'direct_refs': [entry for entry in row['direct_refs'] if entry['kind'] in ('map_pack', 'm6_subchunk_semantic', 'm9_command_m6_semantic')],
             'inferred_refs': [entry for entry in row['inferred_refs'] if entry['kind'] == 'graphics_pack'],
         }
 
@@ -236,7 +256,13 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
         map_cols = '<br>'.join(
             f"{m['map_chunk']} [tile={m['tile_layer_chunk']}, collision={m['collision_layer_chunk'] or '-'}]" for m in row['maps']
         ) or '-'
-        scripts_col = ', '.join(v for v in row['script_chunks'].values() if v) or '-'
+        scripts_flat: list[str] = []
+        for value in row['script_chunks'].values():
+            if isinstance(value, list):
+                scripts_flat.extend(value)
+            elif value:
+                scripts_flat.append(value)
+        scripts_col = ', '.join(scripts_flat) or '-'
         direct_col = '<br>'.join(
             f"{entry['kind']} → {entry['ref']['container']}#{entry['ref']['chunk_index'] if entry['ref']['chunk_index'] is not None else '*'} (c={entry['confidence']:.2f})"
             for entry in row['direct_refs']

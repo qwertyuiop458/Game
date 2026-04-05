@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import argparse
 import math
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from tools.common import COMMON_WIDTHS, JarProject, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
-from tools.script_parser import build_opcode_coverage, build_semantic_level_exports, parse_m9_chunk_tables, parse_script_chunk_semantic
+from tools.script_parser import (
+    build_opcode_coverage,
+    build_semantic_level_exports,
+    parse_m8_chunk_semantic,
+    parse_m9_chunk_tables,
+    parse_script_chunk_semantic,
+)
 
 
 def factor_grid(cells: int) -> tuple[int, int]:
@@ -33,72 +38,6 @@ def factor_grid(cells: int) -> tuple[int, int]:
             best = (w, h)
             best_score = score
     return best
-
-
-def parse_script_stream(chunk: bytes) -> dict[str, Any]:
-    cursor = 0
-    commands = []
-    opcode_hist = Counter()
-    m8_refs = []
-    while cursor < len(chunk):
-        start = cursor
-        opcode = chunk[cursor]
-        opcode_hist[opcode] += 1
-        cursor += 1
-        if opcode == 99 and cursor + 5 <= len(chunk):
-            ref = {
-                'offset': start,
-                'opcode': opcode,
-                'm8_pack_index': chunk[cursor + 1],
-                'm8_subchunk_index': chunk[cursor + 2],
-                'raw_tail': list(chunk[cursor + 3:cursor + 6]),
-            }
-            commands.append(ref)
-            m8_refs.append(ref)
-            cursor += 6
-            continue
-        if opcode == 200 and cursor < len(chunk):
-            size = chunk[cursor]
-            cursor += 1
-            commands.append({'offset': start, 'opcode': opcode, 'payload_size': size})
-            cursor += size
-            continue
-        if cursor + 7 > len(chunk):
-            commands.append({'offset': start, 'opcode': opcode, 'truncated': True})
-            break
-        meta = list(chunk[cursor:cursor + 6])
-        cursor += 6
-        pair_count = chunk[cursor]
-        cursor += 1
-        params = []
-        for _ in range(pair_count):
-            if cursor + 2 > len(chunk):
-                break
-            params.append(u16le(chunk, cursor))
-            cursor += 2
-        commands.append({'offset': start, 'opcode': opcode, 'meta': meta, 'pair_count': pair_count, 'params_preview': params[:24]})
-    return {'command_count': len(commands), 'opcode_histogram': dict(sorted(opcode_hist.items())), 'commands_preview': commands[:128], 'm8_reference_candidates': m8_refs}
-
-
-def parse_m8_subchunk_offsets(chunk: bytes) -> list[int]:
-    offsets = []
-    cursor = 0
-    while cursor < len(chunk):
-        opcode = chunk[cursor]
-        if opcode == 200 and cursor + 2 <= len(chunk):
-            offsets.append(cursor)
-            cursor += 2
-            if cursor <= len(chunk):
-                cursor += chunk[cursor - 1]
-            continue
-        if cursor + 8 > len(chunk):
-            break
-        cursor += 7
-        pair_count = chunk[cursor]
-        cursor += 1 + pair_count * 2
-        if opcode in (100, 101, 102):
-            offsets.append(max(0, cursor - pair_count * 2 - 8))
-    return sorted(set(offsets))
 
 
 def parse_tile_chunk(chunk: bytes) -> dict[str, Any]:
@@ -214,8 +153,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
         if name == 'm8':
             chunks = []
             for idx, chunk in enumerate(container.payloads):
-                parsed = parse_script_stream(chunk)
-                parsed['subchunk_offsets_guess'] = parse_m8_subchunk_offsets(chunk)
+                parsed = parse_m8_chunk_semantic(chunk)
                 path = docs_dir / f'm8_chunk_{idx:02d}.json'
                 write_json(path, parsed)
                 chunks.append({'chunk_index': idx, 'size': len(chunk), 'path': str(path.relative_to(output)), 'opcode_histogram': parsed['opcode_histogram']})
