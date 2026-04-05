@@ -72,6 +72,28 @@ def parse_tile_chunk(chunk: bytes) -> dict[str, Any]:
     }
 
 
+def _build_m6_chunk_pairs(payload_count: int) -> list[dict[str, int | None]]:
+    pairs: list[dict[str, int | None]] = []
+    for tile_index in range(0, payload_count, 2):
+        collision_index = tile_index + 1 if tile_index + 1 < payload_count else None
+        pairs.append({'tile_chunk_index': tile_index, 'collision_chunk_index': collision_index})
+    return pairs
+
+
+def _build_mission_lookup(chapter_mission_links: dict[str, Any]) -> tuple[dict[int, list[dict[str, Any]]], dict[tuple[str, int], list[dict[str, Any]]]]:
+    by_script_chunk: dict[int, list[dict[str, Any]]] = {}
+    by_map_ref: dict[tuple[str, int], list[dict[str, Any]]] = {}
+    for row in chapter_mission_links.get('mission_links', []):
+        script_chunk = row.get('script_chunk')
+        if isinstance(script_chunk, int):
+            by_script_chunk.setdefault(script_chunk, []).append(row)
+        map_pack_name = row.get('map_pack_name')
+        map_subchunk = row.get('map_subchunk')
+        if isinstance(map_pack_name, str) and isinstance(map_subchunk, int):
+            by_map_ref.setdefault((map_pack_name, map_subchunk), []).append(row)
+    return by_script_chunk, by_map_ref
+
+
 def _write_grid_csv(path: Path, values: list[int], width: int, height: int, field_name: str) -> None:
     ensure_dir(path.parent)
     with path.open('w', encoding='utf-8', newline='') as fh:
@@ -183,21 +205,27 @@ def decode_maps(jar: Path, output: Path) -> dict:
     report: dict[str, Any] = {}
     level_manifest_entries: list[dict[str, Any]] = []
     m6_chunk_manifest: dict[str, list[dict[str, Any]]] = {}
+    exported_tile_layers: list[dict[str, Any]] = []
+    exported_collision_layers: list[dict[str, Any]] = []
+    exported_trigger_data: list[dict[str, Any]] = []
+    exported_object_placements: list[dict[str, Any]] = []
 
     for name in [f'm6_{index}' for index in range(6) if f'm6_{index}' in project.containers]:
         container = project.containers[name]
         entries = []
+        chunk_pairs = _build_m6_chunk_pairs(len(container.payloads))
         m6_chunk_manifest[name] = []
-        for idx, chunk in enumerate(container.payloads):
-            if idx % 2 == 1:
-                continue
+        for pair in chunk_pairs:
+            idx = pair['tile_chunk_index']
+            chunk = container.payloads[idx]
             parsed = parse_tile_chunk(chunk)
             width = parsed['width']
             height = parsed['height']
             rgba = [pseudo_color(value) for value in parsed['values']] + [0] * (width * height - len(parsed['values']))
             preview = maps_dir / name / f'{idx:02d}.png'
             write_rgba_png(preview, width, height, rgba)
-            sidecar = container.payloads[idx + 1] if idx + 1 < len(container.payloads) else b''
+            collision_chunk_index = pair['collision_chunk_index']
+            sidecar = container.payloads[collision_chunk_index] if isinstance(collision_chunk_index, int) else b''
             collision_values = list(sidecar)
             tile_base = f'{idx:02d}_tile'
             collision_base = f'{idx:02d}_collision'
@@ -221,7 +249,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
             }
             collision_payload = {
                 'container': name,
-                'chunk_index': idx + 1,
+                'chunk_index': collision_chunk_index,
                 'paired_tile_chunk_index': idx,
                 'kind': 'collision_layer',
                 'width': width,
@@ -250,18 +278,38 @@ def decode_maps(jar: Path, output: Path) -> dict:
             entries.append(meta)
             m6_chunk_manifest[name].append({
                 'tile_chunk_index': idx,
-                'collision_chunk_index': idx + 1 if idx + 1 < len(container.payloads) else None,
+                'collision_chunk_index': collision_chunk_index,
                 'tile_json': str(tile_json.relative_to(output)),
                 'tile_csv': str(tile_csv.relative_to(output)),
                 'collision_json': str(collision_json.relative_to(output)),
                 'collision_csv': str(collision_csv.relative_to(output)),
                 'preview_png': str(preview.relative_to(output)),
             })
+            exported_tile_layers.append({
+                'container': name,
+                'tile_chunk_index': idx,
+                'collision_chunk_index': collision_chunk_index,
+                'width': width,
+                'height': height,
+                'cell_count': parsed['cells'],
+                'tile_json': str(tile_json.relative_to(output)),
+            })
+            exported_collision_layers.append({
+                'container': name,
+                'tile_chunk_index': idx,
+                'collision_chunk_index': collision_chunk_index,
+                'width': width,
+                'height': height,
+                'cell_count': len(collision_values),
+                'collision_json': str(collision_json.relative_to(output)),
+            })
         report[name] = {'map_count': len(entries), 'maps': entries}
 
     docs_dir = output / 'docs' / 'reverse_engineering'
     ensure_dir(docs_dir)
     scripts: dict[str, Any] = {}
+    mission_by_script_chunk: dict[int, list[dict[str, Any]]] = {}
+    mission_by_map_ref: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for name in ('m8', 'm9', 'm10'):
         container = project.containers.get(name)
         if not container:
@@ -296,6 +344,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
         elif name == 'm9':
             table_chunks = parse_m9_chunk_tables(container.payloads)
             chapter_mission_links = build_chapter_mission_links(table_chunks)
+            mission_by_script_chunk, mission_by_map_ref = _build_mission_lookup(chapter_mission_links)
             script_packs = []
             semantic_rows = []
             for idx, chunk in enumerate(container.payloads):
@@ -308,6 +357,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
                     'chunk_index': idx,
                     'size': len(chunk),
                     'path': str(path.relative_to(output)),
+                    'chapter_mission_links': mission_by_script_chunk.get(idx, []),
                     'opcode_histogram': parsed['opcode_histogram'],
                     'semantic_known_count': parsed['semantic_known_count'],
                     'semantic_unknown_count': parsed['semantic_unknown_count'],
@@ -371,6 +421,7 @@ def decode_maps(jar: Path, output: Path) -> dict:
                     'triggers': level_payload.get('triggers', []),
                     'objects': level_payload.get('objects', []),
                     'trace': trace,
+                    'chapter_mission_links': mission_by_script_chunk.get(trace.get('script_chunk'), []),
                     'source_chunks': {
                         'm9_script_chunk': trace.get('script_chunk'),
                         'm9_table_chunk': 0,
@@ -386,6 +437,51 @@ def decode_maps(jar: Path, output: Path) -> dict:
                 }
                 write_json(maps_dir / f'level_{level_index:02d}.json', level_export)
                 level_rows.append(level_export)
+                chapter_mission = next(
+                    (
+                        row for row in mission_by_script_chunk.get(trace.get('script_chunk'), [])
+                        if row.get('level_index') == level_index
+                    ),
+                    None,
+                )
+                chapter_value = chapter_mission.get('chapter') if chapter_mission else trace.get('chapter')
+                mission_value = chapter_mission.get('mission') if chapter_mission else level_index
+                for layer in level_export['tile_layers']:
+                    exported_tile_layers.append({
+                        'container': layer.get('pack'),
+                        'tile_chunk_index': layer.get('subchunk'),
+                        'collision_chunk_index': (layer.get('subchunk') + 1) if isinstance(layer.get('subchunk'), int) else None,
+                        'chapter': chapter_value,
+                        'mission': mission_value,
+                        'source': 'm9_semantic_level',
+                        'level_index': level_index,
+                    })
+                for layer in level_export['collision_layers']:
+                    exported_collision_layers.append({
+                        'container': layer.get('pack'),
+                        'tile_chunk_index': (layer.get('subchunk') - 1) if isinstance(layer.get('subchunk'), int) else None,
+                        'collision_chunk_index': layer.get('subchunk'),
+                        'chapter': chapter_value,
+                        'mission': mission_value,
+                        'source': 'm9_semantic_level',
+                        'level_index': level_index,
+                    })
+                for trigger in level_export['triggers']:
+                    exported_trigger_data.append({
+                        **trigger,
+                        'level_index': level_index,
+                        'chapter': chapter_value,
+                        'mission': mission_value,
+                        'script_chunk': trace.get('script_chunk'),
+                    })
+                for obj in level_export['objects']:
+                    exported_object_placements.append({
+                        **obj,
+                        'level_index': level_index,
+                        'chapter': chapter_value,
+                        'mission': mission_value,
+                        'script_chunk': trace.get('script_chunk'),
+                    })
                 level_manifest_entries.append({
                     'level_index': level_index,
                     'map_pack': map_pack,
@@ -427,6 +523,17 @@ def decode_maps(jar: Path, output: Path) -> dict:
             scripts['m10'] = {'chapter_chunks': chunks}
 
     write_json(maps_dir / 'maps_index.json', report)
+    write_json(tiles_dir / 'tile_layers.json', {'tile_layers': exported_tile_layers})
+    write_json(maps_dir / 'collision_layers.json', {'collision_layers': exported_collision_layers})
+    write_json(maps_dir / 'trigger_data.json', {'triggers': exported_trigger_data})
+    write_json(maps_dir / 'object_placement.json', {'objects': exported_object_placements})
+    write_json(
+        maps_dir / 'chapter_mission_cross_links.json',
+        {
+            'by_script_chunk': {str(key): value for key, value in sorted(mission_by_script_chunk.items())},
+            'by_map_ref': {f'{key[0]}#{key[1]}': value for key, value in sorted(mission_by_map_ref.items())},
+        },
+    )
     write_json(meta_dir / 'maps_manifest.json', {
         'version': 1,
         'generated_by': 'tools.decode_maps',
