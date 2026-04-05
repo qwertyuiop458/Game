@@ -183,8 +183,8 @@ def _build_sprite_model(
             else None
         )
         data_offset = (
-            atlas.sprite_chunk_offsets[frame.index]
-            if frame.index < len(atlas.sprite_chunk_offsets)
+            atlas.sprite_data_offsets[frame.index]
+            if frame.index < len(atlas.sprite_data_offsets)
             else None
         )
         payload = ImagePayload(
@@ -550,6 +550,9 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                     'chunk': chunk_index,
                     'frame': frame.index,
                     'raw_payload': raw_paths[frame.index],
+                    'data_chunk': seed_payload.data_chunk,
+                    'data_offset': frame_offset,
+                    'size': frame_size,
                     'path': rel,
                     'width': width,
                     'height': height,
