@@ -2,19 +2,20 @@
 set -euo pipefail
 
 # Trigger GitHub Actions workflow_dispatch from CLI using only curl.
-# Requires:
-#   - GH_TOKEN env var with repo/workflow scope
-#   - REPO env var in owner/repo format
-# Optional:
+# Requires network access to api.github.com and token with Actions permission.
+# Env:
+#   - GH_TOKEN or GITHUB_TOKEN (required)
+#   - REPO (optional; default qwertyuiop458/Game)
 #   - WORKFLOW_FILE (default: run-apk.yml)
-#   - REF (default: main)
+#   - REF (default: work)
 #   - APK_SOURCE, JAR_SOURCE, STRICT_MODE
 
-: "${GH_TOKEN:?Set GH_TOKEN with Actions permission}"
-: "${REPO:?Set REPO as owner/repo}"
+TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+: "${TOKEN:?Set GH_TOKEN or GITHUB_TOKEN with Actions permission}"
 
+REPO="${REPO:-qwertyuiop458/Game}"
 WORKFLOW_FILE="${WORKFLOW_FILE:-run-apk.yml}"
-REF="${REF:-main}"
+REF="${REF:-work}"
 APK_SOURCE="${APK_SOURCE:-ru.playsoftware.j2meloader-101.apk}"
 JAR_SOURCE="${JAR_SOURCE:-240x320-rus-zombie-infection.jar}"
 STRICT_MODE="${STRICT_MODE:-true}"
@@ -35,7 +36,7 @@ JSON
 
 curl -fL -X POST \
   -H "Accept: application/vnd.github+json" \
-  -H "Authorization: Bearer ${GH_TOKEN}" \
+  -H "Authorization: Bearer ${TOKEN}" \
   -H "X-GitHub-Api-Version: 2022-11-28" \
   "${api_url}" \
   -d "${payload}"
