@@ -1,5 +1,7 @@
 # Game
 
+[![Tests](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/tests.yml)
+
 Offline extractor for `240x320-rus-zombie-infection.jar`.
 
 ## Usage
