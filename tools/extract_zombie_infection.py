@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import logging
 import sys
+import zlib
 from pathlib import Path
 
 if __package__ in {None, ''}:
@@ -17,22 +20,51 @@ from tools.linker import build_chapter_matrix
 from tools.parse_packs import parse_packs
 
 
-def export_ui(project: JarProject, output: Path) -> dict:
+def extract_ui_assets(project: JarProject, output: Path) -> dict:
     ui_dir = output / 'extracted' / 'ui'
+    meta_dir = output / 'extracted' / 'meta'
     ensure_dir(ui_dir)
-    result = {}
-    icon = project.raw_entries.get('icon.png')
-    if icon:
-        path = ui_dir / 'icon.png'
-        path.write_bytes(icon)
-        result['icon.png'] = str(path.relative_to(output))
-    data_igp = project.raw_entries.get('dataIGP')
-    if data_igp:
-        path = ui_dir / 'dataIGP'
-        path.write_bytes(data_igp)
-        result['dataIGP'] = str(path.relative_to(output))
-    write_json(ui_dir / 'index.json', result)
-    return result
+    ensure_dir(meta_dir)
+    expected_assets = ('icon.png', 'dataIGP')
+    copied_assets: dict[str, str] = {}
+    missing_assets: list[str] = []
+    manifest_files: list[dict[str, str | int]] = []
+
+    for asset_name in expected_assets:
+        payload = project.raw_entries.get(asset_name)
+        if payload is None:
+            missing_assets.append(asset_name)
+            continue
+
+        target_path = ui_dir / asset_name
+        target_path.write_bytes(payload)
+        copied_assets[asset_name] = str(target_path.relative_to(output))
+        manifest_files.append({
+            'name': asset_name,
+            'path': copied_assets[asset_name],
+            'size_bytes': len(payload),
+            'crc32_hex': f'{zlib.crc32(payload) & 0xFFFFFFFF:08x}',
+            'sha1': hashlib.sha1(payload).hexdigest(),
+        })
+
+    if missing_assets:
+        logging.warning(
+            'UI assets are missing in %s: %s',
+            project.jar_path,
+            ', '.join(missing_assets),
+        )
+
+    manifest = {
+        'source_jar': project.jar_path.name,
+        'files': manifest_files,
+        'missing_files': missing_assets,
+    }
+    write_json(meta_dir / 'ui_manifest.json', manifest)
+    return {
+        'copied': copied_assets,
+        'missing': missing_assets,
+        'manifest': str((meta_dir / 'ui_manifest.json').relative_to(output)),
+    }
 
 
 def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) -> dict:
@@ -44,7 +76,7 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
     audio = decode_audio(jar, output)
     maps_bundle = decode_maps(jar, output)
     graphics = decode_graphics(jar, output)
-    ui = export_ui(project, output)
+    ui = extract_ui_assets(project, output)
     final_table = build_final_table(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
     chapter_mission_matrix = build_chapter_mission_matrix(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
     chapter_matrix = build_chapter_matrix(jar, output)
