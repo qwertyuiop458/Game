@@ -1,0 +1,8 @@
+{
+  "case_id": "packed4_inline",
+  "description": "Репрезентативный PACKED_4 atlas со встроенным payload",
+  "table_chunk_hex": "table_chunk.hex",
+  "external_chunks": [],
+  "preview_png_base64": "preview.png.b64",
+  "metadata_json": "expected.json"
+}
