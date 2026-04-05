@@ -209,3 +209,8 @@ Workflow запускается по `workflow_dispatch`, а также на `pu
 - `jar_source`: локальный путь в репозитории **или** `https://...jar`
 
 Тогда workflow сам скачает APK/JAR и попытается выполнить весь цикл: установить APK → загрузить JAR → запустить JAR в эмуляторе.
+
+Если нет GitHub CLI-авторизации для `gh workflow run`, обход уже встроен:
+- workflow стартует автоматически на `push/pull_request`;
+- есть nightly `schedule` (03:00 UTC), который тоже выполняет запуск;
+- для schedule можно задать `Repository Variables`: `APK_SOURCE_URL` и `JAR_SOURCE_URL`.
