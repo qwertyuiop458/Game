@@ -8,6 +8,7 @@ from tools.decode_audio_m13 import decode_audio
 from tools.decode_graphics import decode_graphics
 from tools.decode_maps import build_final_table, decode_maps
 from tools.decode_text_t0 import decode_text
+from tools.linker import build_chapter_matrix
 from tools.parse_packs import parse_packs
 
 
@@ -40,6 +41,7 @@ def run_extractor(jar: Path, output: Path) -> dict:
     graphics = decode_graphics(jar, output)
     ui = export_ui(project, output)
     final_table = build_final_table(project, output, maps_bundle['maps'], maps_bundle['scripts'], audio, text)
+    chapter_matrix = build_chapter_matrix(jar, output)
     summary = {
         'jar': str(jar),
         'containers': chunks,
@@ -50,7 +52,8 @@ def run_extractor(jar: Path, output: Path) -> dict:
         'graphics': graphics,
         'ui': ui,
         'final_table_rows': len(final_table),
-        'scripts_semantic_coverage': maps_bundle['scripts'].get('m9', {}).get('opcode_coverage', {}),
+        'chapter_matrix_rows': len(chapter_matrix.get('chapters', [])),
+        'chapter_matrix_cross_check': chapter_matrix.get('cross_check', {}),
     }
     write_json(output / 'summary.json', summary)
     return summary

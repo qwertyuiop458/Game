@@ -17,6 +17,7 @@ python3 -m tools.decode_text_t0 240x320-rus-zombie-infection.jar
 python3 -m tools.decode_audio_m13 240x320-rus-zombie-infection.jar
 python3 -m tools.decode_graphics 240x320-rus-zombie-infection.jar
 python3 -m tools.decode_maps 240x320-rus-zombie-infection.jar
+python3 -m tools.linker 240x320-rus-zombie-infection.jar
 ```
 
 By default, the extractor writes to `.artifacts/extractor_out/`, which is gitignored so generated binaries, PNGs, MIDI files, and JSON dumps do not end up in pull requests. Use `-o <dir>` if you want a different output location.
@@ -35,6 +36,7 @@ By default, the extractor writes to `.artifacts/extractor_out/`, which is gitign
 - research previews for `m3_0`, `m4_0`, `m11_0`, `m11_1` under `extracted/images/research/`;
 - reverse-engineering notes plus the requested chapter/mission summary table under `docs/reverse_engineering/`;
 - machine-readable `summary.json` tying the above artifacts together.
+- chapter dependency matrix in JSON/Markdown (`chapter_matrix.json`, `chapter_matrix.md`) with direct/inferred links and cross-check status.
 
 ## Repository policy
 
