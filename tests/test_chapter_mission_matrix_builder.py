@@ -125,3 +125,64 @@ def test_chapter_counts_follow_m6_containers(tmp_path: Path) -> None:
     assert len(matrix_rows) == 4
     assert [row['chapter'] for row in final_rows] == [0, 1, 2, 3]
     assert [row['chapter'] for row in matrix_rows] == [0, 1, 2, 3]
+
+
+def test_graphics_chunk_links_are_not_identical_between_chapters_by_default(tmp_path: Path) -> None:
+    output = tmp_path
+    text_dir = output / 'extracted' / 'text'
+    text_dir.mkdir(parents=True)
+    for idx in range(6):
+        (text_dir / f't0_{idx:02d}_full.txt').write_text(
+            f'chapter {idx} zombie laboratory final fight',
+            encoding='utf-8',
+        )
+
+    maps_report = {f'm6_{idx}': {'map_count': 1} for idx in range(6)}
+    script_report = {
+        'm9': {
+            'chapter_mission_links': {
+                'mission_links': [
+                    {'chapter': idx, 'mission': idx, 'script_chunk': 10 + idx}
+                    for idx in range(6)
+                ]
+            }
+        }
+    }
+    graphics_report = {
+        'containers': {
+            'm3_0': {'chunks': [{'chunk': 0}, {'chunk': 1}, {'chunk': 2}]},
+            'm4_0': {'chunks': [{'chunk': 0}, {'chunk': 1}, {'chunk': 2}]},
+        }
+    }
+    audio_report = {'midi': [], 'raw_audio': []}
+    text_report = {
+        'chunks': [
+            {'chunk_index': idx, 'path': f'extracted/text/t0_{idx:02d}_full.txt'}
+            for idx in range(6)
+        ]
+    }
+
+    rows = build_chapter_mission_matrix(
+        _ProjectStub(),
+        output,
+        maps_report,
+        script_report,
+        graphics_report,
+        audio_report,
+        text_report,
+    )
+
+    chapter0_graphics = {
+        (link['container'], link['chunk_index'])
+        for link in rows[0]['links']
+        if link['kind'] == 'graphics_chunk'
+    }
+    chapter1_graphics = {
+        (link['container'], link['chunk_index'])
+        for link in rows[1]['links']
+        if link['kind'] == 'graphics_chunk'
+    }
+
+    assert chapter0_graphics
+    assert chapter1_graphics
+    assert chapter0_graphics != chapter1_graphics
