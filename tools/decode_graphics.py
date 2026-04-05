@@ -7,6 +7,7 @@ from typing import Any
 
 from tools.common import JarProject, ensure_dir, write_json, write_rgba_png
 from tools.graphics_decoder import Atlas, parse_atlas
+from tools.reference_cases import verify_reference_cases
 
 
 @dataclass
@@ -67,6 +68,54 @@ class Sprite:
     composition_rules: dict[str, Any]
     metadata_path: str
     manifest_path: str
+
+
+def evaluate_graphics_quality_gate(
+    *,
+    total_frames: int,
+    decoded_frames: int,
+    degraded_frames: int,
+    failed_frames: int,
+    skipped_frames: int,
+    non_empty_raw_frames: int,
+    non_empty_raw_with_alpha_nonzero: int,
+    failed_non_empty_raw_frames: int,
+    reference_cases_passed: bool,
+) -> dict[str, Any]:
+    gate_reasons: list[str] = []
+    counters = {
+        'total_frames': total_frames,
+        'decoded_frames': decoded_frames,
+        'degraded_frames': degraded_frames,
+        'failed_frames': failed_frames,
+        'skipped_frames': skipped_frames,
+        'non_empty_raw_frames': non_empty_raw_frames,
+        'non_empty_raw_with_alpha_nonzero': non_empty_raw_with_alpha_nonzero,
+    }
+    for key, value in counters.items():
+        if value < 0:
+            gate_reasons.append(f'negative_counter:{key}')
+    if decoded_frames + degraded_frames + failed_frames + skipped_frames != total_frames:
+        gate_reasons.append('frame_accounting_mismatch')
+    if non_empty_raw_with_alpha_nonzero > non_empty_raw_frames:
+        gate_reasons.append('alpha_nonzero_exceeds_non_empty_raw')
+    if failed_non_empty_raw_frames > 0:
+        gate_reasons.append('non_empty_raw_failed_without_acceptable_degradation')
+    if not reference_cases_passed:
+        gate_reasons.append('reference_cases_failed')
+
+    return {
+        'total_frames': total_frames,
+        'decoded_frames': decoded_frames,
+        'degraded_frames': degraded_frames,
+        'failed_frames': failed_frames,
+        'skipped_frames': skipped_frames,
+        'non_empty_raw_frames': non_empty_raw_frames,
+        'non_empty_raw_with_alpha_nonzero': non_empty_raw_with_alpha_nonzero,
+        'reference_cases_passed': reference_cases_passed,
+        'gate_passed': len(gate_reasons) == 0,
+        'gate_reasons': gate_reasons,
+    }
 
 
 def _export_palette_previews(output: Path, atlas: Atlas, pack_name: str) -> list[str]:
@@ -396,6 +445,14 @@ def decode_graphics(jar: Path, output: Path) -> dict:
 
     result: dict[str, Any] = {'containers': {}, 'images': []}
     graphics_manifest: dict[str, Any] = {'sprites': [], 'trace': []}
+    total_frames = 0
+    decoded_frames = 0
+    degraded_frames = 0
+    failed_frames = 0
+    skipped_frames_count = 0
+    non_empty_raw_frames = 0
+    non_empty_raw_with_alpha_nonzero = 0
+    failed_non_empty_raw_frames = 0
     for name in ('m3_0', 'm4_0', 'm7', 'm11_0', 'm11_1'):
         container = project.containers.get(name)
         if not container or not container.payloads:
@@ -513,6 +570,30 @@ def decode_graphics(jar: Path, output: Path) -> dict:
 
             metadata_path = pack_dir / 'metadata.json'
             write_json(metadata_path, metadata)
+            total_frames += metadata['frame_count']
+            for frame_export in exported_frames:
+                raw_payload_size = int(frame_export.get('diagnostics', {}).get('raw_payload_size', 0) or 0)
+                if raw_payload_size > 0:
+                    non_empty_raw_frames += 1
+                    alpha_non_zero = int(
+                        frame_export.get('diagnostics', {}).get('alpha', {}).get('non_zero', 0) or 0
+                    )
+                    if alpha_non_zero > 0:
+                        non_empty_raw_with_alpha_nonzero += 1
+                if frame_export.get('decode_status') == 'decoded':
+                    decoded_frames += 1
+                elif frame_export.get('decode_status') == 'degraded_decode':
+                    degraded_frames += 1
+            for skipped_frame in skipped_frames:
+                raw_payload_size = int(skipped_frame.get('size', 0) or 0)
+                if raw_payload_size > 0:
+                    non_empty_raw_frames += 1
+                if skipped_frame.get('decode_status') == 'failed_decode':
+                    failed_frames += 1
+                    if raw_payload_size > 0:
+                        failed_non_empty_raw_frames += 1
+                elif skipped_frame.get('decode_status') == 'skipped':
+                    skipped_frames_count += 1
 
             sprite = _build_sprite_model(
                 container=name,
@@ -598,6 +679,20 @@ def decode_graphics(jar: Path, output: Path) -> dict:
         if container_manifest['chunks']:
             result['containers'][name] = container_manifest
 
+    reference_cases_passed = len(verify_reference_cases()) == 0
+    quality_gate = evaluate_graphics_quality_gate(
+        total_frames=total_frames,
+        decoded_frames=decoded_frames,
+        degraded_frames=degraded_frames,
+        failed_frames=failed_frames,
+        skipped_frames=skipped_frames_count,
+        non_empty_raw_frames=non_empty_raw_frames,
+        non_empty_raw_with_alpha_nonzero=non_empty_raw_with_alpha_nonzero,
+        failed_non_empty_raw_frames=failed_non_empty_raw_frames,
+        reference_cases_passed=reference_cases_passed,
+    )
+    result['graphics_quality_gate'] = quality_gate
+    graphics_manifest['graphics_quality_gate'] = quality_gate
     write_json(extracted_images_dir / 'index.json', result)
     write_json(extracted_meta_dir / 'graphics_manifest.json', graphics_manifest)
     return result
