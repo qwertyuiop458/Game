@@ -9,26 +9,35 @@ from tools.common import JarProject, ensure_dir, sanitize_text, u32le, write_jso
 ENCODING_CHAIN = ('utf-8', 'cp1251', 'latin-1')
 
 
-def decode_text_chunk(chunk: bytes, forced_encoding: str | None = None) -> dict:
+def decode_chunk_with_fallback(chunk: bytes, forced_encoding: str | None = None) -> dict:
     encodings = (forced_encoding,) if forced_encoding else ENCODING_CHAIN
     best: dict | None = None
     for encoding in encodings:
         decoded = chunk.decode(encoding, errors='replace')
         replacement_count = decoded.count('\ufffd')
         candidate = {
-            'text': sanitize_text(decoded),
+            'decoded_text': sanitize_text(decoded),
             'encoding_used': encoding,
-            'decode_quality': {
+            'replacement_stats': {
                 'replacement_count': replacement_count,
                 'replacement_ratio': round((replacement_count / len(decoded)), 6) if decoded else 0.0,
             },
         }
-        if best is None or replacement_count < best['decode_quality']['replacement_count']:
+        if best is None or replacement_count < best['replacement_stats']['replacement_count']:
             best = candidate
     return best or {
-        'text': '',
+        'decoded_text': '',
         'encoding_used': forced_encoding or ENCODING_CHAIN[0],
-        'decode_quality': {'replacement_count': 0, 'replacement_ratio': 0.0},
+        'replacement_stats': {'replacement_count': 0, 'replacement_ratio': 0.0},
+    }
+
+
+def decode_text_chunk(chunk: bytes, forced_encoding: str | None = None) -> dict:
+    decoded = decode_chunk_with_fallback(chunk, forced_encoding=forced_encoding)
+    return {
+        'text': decoded['decoded_text'],
+        'encoding_used': decoded['encoding_used'],
+        'decode_quality': decoded['replacement_stats'],
     }
 
 
@@ -55,14 +64,23 @@ def guess_offset_table(chunk: bytes) -> dict | None:
 
 
 def export_strings(combined: bytes, offsets: list[int], forced_encoding: str | None = None) -> list[dict]:
+    def _decode_segment(segment: bytes) -> dict:
+        decoded = decode_chunk_with_fallback(segment, forced_encoding=forced_encoding)
+        return {
+            'text': decoded['decoded_text'],
+            'encoding_used': decoded['encoding_used'],
+            'replacement_stats': decoded['replacement_stats'],
+            'decode_quality': decoded['replacement_stats'],
+        }
+
     strings = []
     last = 0
     for end in offsets:
         if 0 <= last <= end <= len(combined):
-            strings.append(decode_text_chunk(combined[last:end], forced_encoding=forced_encoding))
+            strings.append(_decode_segment(combined[last:end]))
             last = end
     if last < len(combined):
-        strings.append(decode_text_chunk(combined[last:], forced_encoding=forced_encoding))
+        strings.append(_decode_segment(combined[last:]))
     return [entry for entry in strings if entry['text'].strip()]
 
 
