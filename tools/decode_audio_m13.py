@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import math
 import zlib
 from collections import Counter
 from pathlib import Path
 
 from tools.common import JarProject, ensure_dir, write_json
+from tools.contracts import ensure_required_blocks, normalize_audio_coverage, normalize_midi_validation_summary
 
 
 def _u16be(data: bytes, offset: int) -> int:
@@ -135,6 +137,7 @@ def decode_audio(jar: Path, output: Path) -> dict:
         'counts': {'valid_midi': 0, 'invalid_midi': 0, 'raw_audio': 0, 'warnings': 0},
         'audio_coverage': {'total_tracks': 0, 'decoded_tracks': 0, 'coverage_percent': 0.0},
         'midi_validation_summary': {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0},
+        'audio_validation_summary': {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0},
     }
     coverage = {'total_chunks': 0, 'empty_chunks': 0}
     for name in ('m13_1', 'm13_2'):
@@ -144,7 +147,9 @@ def decode_audio(jar: Path, output: Path) -> dict:
         pack_dir = audio_dir / name
         ensure_dir(pack_dir)
         for idx, chunk in enumerate(container.payloads):
+            coverage['total_chunks'] += 1
             if not chunk:
+                coverage['empty_chunks'] += 1
                 continue
             try:
                 chunk_kind, payload = detect_chunk_format(chunk)
@@ -225,11 +230,21 @@ def decode_audio(jar: Path, output: Path) -> dict:
                 })
     decoded_tracks = coverage['total_chunks'] - coverage['empty_chunks']
     coverage_percent = 0.0 if coverage['total_chunks'] == 0 else round(decoded_tracks * 100.0 / coverage['total_chunks'], 2)
-    out['audio_coverage'] = {
+    out['audio_coverage'] = normalize_audio_coverage({
         'total_tracks': coverage['total_chunks'],
         'decoded_tracks': decoded_tracks,
         'coverage_percent': coverage_percent,
-    }
+    })
+    out['midi_validation_summary'] = normalize_midi_validation_summary(out.get('midi_validation_summary'))
+    out['audio_validation_summary'] = dict(out['midi_validation_summary'])
+    ensure_required_blocks(
+        out,
+        {
+            'audio_coverage': normalize_audio_coverage(None),
+            'midi_validation_summary': normalize_midi_validation_summary(None),
+            'audio_validation_summary': normalize_midi_validation_summary(None),
+        },
+    )
     write_json(audio_dir / 'signatures.json', signature_registry)
     write_json(audio_dir / 'midi_validation_report.json', out['midi_validation_summary'])
     write_json(audio_dir / 'index.json', out)

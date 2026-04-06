@@ -185,12 +185,15 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
     assert isinstance(audio_coverage.get('coverage_percent'), float)
     assert 0.0 <= audio_coverage['coverage_percent'] <= 100.0
 
+    assert 'audio_validation_summary' in summary['audio']
+    assert summary['audio']['audio_validation_summary'] == summary['audio_validation_summary']
     midi_validation_summary = summary['audio_validation_summary']
     assert set(midi_validation_summary) == {'total', 'valid', 'invalid', 'warnings'}
     assert all(isinstance(midi_validation_summary[key], int) for key in midi_validation_summary)
     assert all(midi_validation_summary[key] >= 0 for key in midi_validation_summary)
     assert midi_validation_summary['valid'] <= midi_validation_summary['total']
     assert midi_validation_summary['invalid'] <= midi_validation_summary['total']
+    assert midi_validation_summary['valid'] + midi_validation_summary['invalid'] <= midi_validation_summary['total']
 
     linker_conflicts_summary = summary['linker_conflicts_summary']
     assert isinstance(linker_conflicts_summary.get('total_conflicts'), int)
@@ -218,6 +221,7 @@ def test_run_extractor_summary_contract(monkeypatch, tmp_path: Path) -> None:
         value = chapter_matrix_cross_check['valid_confidence_totals'][key]
         assert isinstance(value, int)
         assert value >= 0
+    assert sum(chapter_matrix_cross_check['valid_confidence_totals'].values()) >= chapter_matrix_cross_check['valid_refs']
     assert isinstance(chapter_matrix_cross_check.get('invalid_refs'), list)
     assert isinstance(chapter_matrix_cross_check.get('dropped_invalid_refs'), list)
     assert isinstance(chapter_matrix_cross_check.get('conflict_summary'), dict)

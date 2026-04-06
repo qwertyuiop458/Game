@@ -52,6 +52,10 @@ def test_decode_audio_creates_raw_sidecar_and_signature_registry_for_non_midi_ch
     assert all(item['kind'] == 'raw' for item in registry)
     assert all('sha1' in item and 'crc32_hex' in item for item in registry)
     assert report['midi_validation_summary'] == {'total': 0, 'valid': 0, 'invalid': 0, 'warnings': 0}
+    assert report['audio_validation_summary'] == report['midi_validation_summary']
+    assert report['audio_coverage']['total_tracks'] == 3
+    assert report['audio_coverage']['decoded_tracks'] == 3
+    assert report['audio_coverage']['coverage_percent'] == 100.0
 
 
 def test_decode_audio_swallows_chunk_errors_and_reports_invalid_stats(monkeypatch, tmp_path: Path) -> None:
@@ -74,6 +78,7 @@ def test_decode_audio_swallows_chunk_errors_and_reports_invalid_stats(monkeypatc
     report = decode_audio(jar_path, output_dir)
 
     assert report['stats'] == {'valid': 1, 'invalid': 1, 'raw': 1}
+    assert 0.0 <= report['audio_coverage']['coverage_percent'] <= 100.0
     assert len(report['invalid_audio']) == 1
     assert report['invalid_audio'][0]['container'] == 'm13_1'
     assert report['invalid_audio'][0]['chunk_index'] == 0
@@ -96,6 +101,7 @@ def test_decode_audio_marks_valid_midi_status(tmp_path: Path) -> None:
     assert report['midi_validation'][0]['status'] == 'valid'
     assert report['midi_validation'][0]['reason'] == 'ok'
     assert report['midi_validation_summary'] == {'total': 1, 'valid': 1, 'invalid': 0, 'warnings': 0}
+    assert report['audio_validation_summary']['total'] == 1
 
 
 def test_decode_audio_marks_corrupted_midi_header_invalid(tmp_path: Path) -> None:
@@ -110,6 +116,7 @@ def test_decode_audio_marks_corrupted_midi_header_invalid(tmp_path: Path) -> Non
     assert report['midi_validation'][0]['status'] == 'invalid'
     assert report['midi_validation'][0]['reason'] == 'midi_header_too_short'
     assert report['midi_validation_summary'] == {'total': 1, 'valid': 0, 'invalid': 1, 'warnings': 0}
+    assert report['audio_validation_summary']['invalid'] == 1
 
 
 def test_decode_audio_marks_track_count_mismatch_warning(tmp_path: Path) -> None:
@@ -124,3 +131,4 @@ def test_decode_audio_marks_track_count_mismatch_warning(tmp_path: Path) -> None
     assert report['midi_validation'][0]['status'] == 'warning'
     assert report['midi_validation'][0]['reason'].startswith('track_count_mismatch')
     assert report['midi_validation_summary'] == {'total': 1, 'valid': 0, 'invalid': 0, 'warnings': 1}
+    assert report['audio_validation_summary']['warnings'] == 1

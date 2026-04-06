@@ -168,6 +168,24 @@ print({"coverage_percent": coverage, "maps_validation_failed": maps_failed})
 For full field list, invariants, and breaking/deprecation policy see:
 [`docs/reverse_engineering/summary_schema.md`](docs/reverse_engineering/summary_schema.md).
 
+
+## Guaranteed summary fields and compatibility policy
+
+`summary.json` has **guaranteed** top-level fields for `1.x` consumers:
+
+- `audio_coverage`
+- `audio_validation_summary`
+- `map_mismatch_summary`
+- `chapter_matrix_cross_check`
+- `linker_conflicts_summary`
+
+Compatibility policy:
+
+- `PATCH/MINOR`: additive-only changes (new optional fields), no removal/rename/type change of guaranteed fields.
+- `MAJOR`: required for breaking changes to guaranteed fields.
+- Consumers should validate `summary_schema_version`, require known `MAJOR`, and ignore unknown extra keys.
+
+
 ## Iteration 1 coverage
 
 This first pass implements:

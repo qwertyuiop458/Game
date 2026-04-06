@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import CHAPTER_COUNT, JarProject, detect_m6_chapter_count, ensure_dir, write_json
+from tools.contracts import (
+    ensure_required_blocks,
+    normalize_chapter_matrix_cross_check,
+    normalize_linker_conflicts_summary,
+)
 from tools.script_parser import parse_m9_chunk_tables, parse_script_chunk_semantic, resolve_level_trace
 
 CONFIDENCE_VALUES = ('direct', 'inferred', 'unknown')
@@ -455,15 +460,22 @@ def build_chapter_matrix(jar: Path, output: Path) -> dict[str, Any]:
 
     matrix = {
         'chapters': rows,
-        'cross_check': cross_check,
+        'cross_check': normalize_chapter_matrix_cross_check(cross_check),
         'conflicts': structural_conflicts,
         'link_conflicts': source_conflicts,
-        'linker_conflicts_summary': {
+        'linker_conflicts_summary': normalize_linker_conflicts_summary({
             'total_conflicts': len(source_conflicts),
             'blocking_conflicts': len(source_conflicts),
             'conflicts': source_conflicts,
-        },
+        }),
     }
+    ensure_required_blocks(
+        matrix,
+        {
+            'cross_check': normalize_chapter_matrix_cross_check(None),
+            'linker_conflicts_summary': normalize_linker_conflicts_summary(None),
+        },
+    )
     json_path = docs_dir / 'chapter_matrix.json'
     conflicts_path = docs_dir / 'link_conflicts.json'
     md_path = docs_dir / 'chapter_matrix.md'

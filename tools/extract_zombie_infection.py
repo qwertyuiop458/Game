@@ -13,6 +13,13 @@ if __package__ in {None, ''}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from tools.common import JarProject, ensure_dir, write_json
+from tools.contracts import (
+    normalize_audio_coverage,
+    normalize_chapter_matrix_cross_check,
+    normalize_linker_conflicts_summary,
+    normalize_map_mismatch_summary,
+    normalize_midi_validation_summary,
+)
 from tools.decode_audio_m13 import decode_audio
 from tools.decode_graphics import decode_graphics
 from tools.decode_maps import build_chapter_mission_matrix, build_final_table, decode_maps
@@ -59,134 +66,6 @@ def is_summary_backward_compatible(summary: dict[str, Any], *, supported_major: 
         return False
     return SUMMARY_REQUIRED_KEYS.issubset(summary.keys())
 
-
-def _to_non_negative_int(value: Any, default: int = 0) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(parsed, 0)
-
-
-def _normalize_audio_coverage(raw: Any) -> dict[str, int | float]:
-    data = raw if isinstance(raw, dict) else {}
-    total_tracks = _to_non_negative_int(data.get('total_tracks', 0))
-    decoded_tracks = min(_to_non_negative_int(data.get('decoded_tracks', 0)), total_tracks)
-    coverage_percent_raw = data.get('coverage_percent', 0.0)
-    try:
-        coverage_percent = float(coverage_percent_raw)
-    except (TypeError, ValueError):
-        coverage_percent = 0.0
-    coverage_percent = max(0.0, min(coverage_percent, 100.0))
-    return {
-        'total_tracks': total_tracks,
-        'decoded_tracks': decoded_tracks,
-        'coverage_percent': coverage_percent,
-    }
-
-
-def _normalize_midi_validation_summary(raw: Any) -> dict[str, int]:
-    data = raw if isinstance(raw, dict) else {}
-    total = _to_non_negative_int(data.get('total', 0))
-    valid = _to_non_negative_int(data.get('valid', 0))
-    invalid = _to_non_negative_int(data.get('invalid', 0))
-    warnings = _to_non_negative_int(data.get('warnings', 0))
-    return {
-        'total': total,
-        'valid': min(valid, total),
-        'invalid': min(invalid, total),
-        'warnings': warnings,
-    }
-
-
-def _normalize_map_mismatch_summary(raw: Any) -> dict[str, Any]:
-    data = raw if isinstance(raw, dict) else {}
-    total_maps = _to_non_negative_int(data.get('total_maps', 0))
-    maps_validation_passed = _to_non_negative_int(data.get('maps_validation_passed', 0))
-    maps_validation_failed = _to_non_negative_int(data.get('maps_validation_failed', 0))
-    mismatched_maps = _to_non_negative_int(data.get('mismatched_maps', maps_validation_failed))
-    mismatch_details_raw = data.get('mismatch_details')
-    mismatch_details: list[dict[str, Any]] = []
-    if isinstance(mismatch_details_raw, list):
-        for item in mismatch_details_raw:
-            entry = item if isinstance(item, dict) else {}
-            expected = entry.get('expected') if isinstance(entry.get('expected'), dict) else {}
-            actual = entry.get('actual') if isinstance(entry.get('actual'), dict) else {}
-            mismatch_details.append(
-                {
-                    'pack': str(entry.get('pack', '')),
-                    'chunk': _to_non_negative_int(entry.get('chunk', 0)),
-                    'expected': expected,
-                    'actual': actual,
-                    'severity': str(entry.get('severity', 'unknown')),
-                    'message': str(entry.get('message', '')),
-                }
-            )
-    if total_maps == 0:
-        total_maps = maps_validation_passed + maps_validation_failed
-    mismatched_maps = min(mismatched_maps, total_maps)
-    maps_validation_failed = min(maps_validation_failed, total_maps)
-    maps_validation_passed = min(maps_validation_passed, total_maps)
-    return {
-        'total_maps': total_maps,
-        'mismatched_maps': mismatched_maps,
-        'mismatch_details': mismatch_details,
-        'maps_validation_passed': maps_validation_passed,
-        'maps_validation_failed': maps_validation_failed,
-    }
-
-
-def _normalize_chapter_matrix_cross_check(raw: Any) -> dict[str, Any]:
-    data = raw if isinstance(raw, dict) else {}
-    total_refs = _to_non_negative_int(data.get('total_refs', 0))
-    valid_refs = min(_to_non_negative_int(data.get('valid_refs', 0)), total_refs)
-
-    valid_confidence_totals_raw = data.get('valid_confidence_totals')
-    valid_confidence_totals: dict[str, int] = {}
-    if isinstance(valid_confidence_totals_raw, dict):
-        for key in ('direct', 'inferred', 'unknown'):
-            valid_confidence_totals[key] = _to_non_negative_int(valid_confidence_totals_raw.get(key, 0))
-    else:
-        valid_confidence_totals = {'direct': 0, 'inferred': 0, 'unknown': 0}
-
-    invalid_refs_raw = data.get('invalid_refs')
-    invalid_refs = invalid_refs_raw if isinstance(invalid_refs_raw, list) else []
-    dropped_invalid_refs_raw = data.get('dropped_invalid_refs')
-    dropped_invalid_refs = dropped_invalid_refs_raw if isinstance(dropped_invalid_refs_raw, list) else []
-
-    conflict_summary_raw = data.get('conflict_summary')
-    conflict_summary = conflict_summary_raw if isinstance(conflict_summary_raw, dict) else {}
-    by_type_raw = conflict_summary.get('by_type')
-    by_type = by_type_raw if isinstance(by_type_raw, dict) else {}
-    normalized_by_type = {str(key): _to_non_negative_int(value) for key, value in by_type.items()}
-    total_conflicts = _to_non_negative_int(conflict_summary.get('total_conflicts', 0))
-
-    return {
-        'total_refs': total_refs,
-        'valid_refs': valid_refs,
-        'valid_confidence_totals': valid_confidence_totals,
-        'invalid_refs': invalid_refs,
-        'dropped_invalid_refs': dropped_invalid_refs,
-        'conflict_summary': {
-            'total_conflicts': total_conflicts,
-            'by_type': normalized_by_type,
-        },
-    }
-
-
-def _normalize_linker_conflicts_summary(raw: Any) -> dict[str, Any]:
-    data = raw if isinstance(raw, dict) else {}
-    total_conflicts = _to_non_negative_int(data.get('total_conflicts', 0))
-    blocking_conflicts = min(_to_non_negative_int(data.get('blocking_conflicts', 0)), total_conflicts)
-    conflicts_raw = data.get('conflicts')
-    conflicts: list[dict[str, Any]] = []
-    if isinstance(conflicts_raw, list):
-        conflicts = [entry if isinstance(entry, dict) else {'value': str(entry)} for entry in conflicts_raw]
-    return {
-        'total_conflicts': total_conflicts,
-        'blocking_conflicts': blocking_conflicts,
-        'conflicts': conflicts,
-    }
 
 
 def extract_ui_assets(project: JarProject, output: Path) -> dict:
@@ -265,11 +144,16 @@ def run_extractor(jar: Path, output: Path, strings_encoding: str | None = None) 
         text,
     )
     chapter_matrix = build_chapter_matrix(jar, output)
-    audio_coverage = _normalize_audio_coverage(audio.get('audio_coverage'))
-    audio_validation_summary = _normalize_midi_validation_summary(audio.get('midi_validation_summary'))
-    map_mismatch_summary = _normalize_map_mismatch_summary(maps_bundle.get('map_mismatch_summary'))
-    chapter_matrix_cross_check = _normalize_chapter_matrix_cross_check(chapter_matrix.get('cross_check'))
-    linker_conflicts_summary = _normalize_linker_conflicts_summary(chapter_matrix.get('linker_conflicts_summary'))
+    audio_coverage = normalize_audio_coverage(audio.get('audio_coverage'))
+    audio_validation_summary = normalize_midi_validation_summary(
+        audio.get('audio_validation_summary', audio.get('midi_validation_summary'))
+    )
+    audio['audio_coverage'] = audio_coverage
+    audio['audio_validation_summary'] = audio_validation_summary
+    audio['midi_validation_summary'] = audio_validation_summary
+    map_mismatch_summary = normalize_map_mismatch_summary(maps_bundle.get('map_mismatch_summary'))
+    chapter_matrix_cross_check = normalize_chapter_matrix_cross_check(chapter_matrix.get('cross_check'))
+    linker_conflicts_summary = normalize_linker_conflicts_summary(chapter_matrix.get('linker_conflicts_summary'))
     container_quality: dict[str, dict[str, Any]] = {}
     for name, info in chunks.items():
         validation_errors = info.get('validation_errors')

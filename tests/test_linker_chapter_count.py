@@ -49,6 +49,7 @@ def test_build_chapter_matrix_uses_dynamic_m6_count(tmp_path: Path, monkeypatch)
     assert 'conflicts' in payload
     assert 'conflict_summary' in payload['cross_check']
     assert set(payload['cross_check']['valid_confidence_totals']) == {'direct', 'inferred', 'unknown'}
+    assert payload['cross_check']['valid_refs'] <= payload['cross_check']['total_refs']
     for chapter_row in payload['chapters']:
         for entry in chapter_row['direct_refs'] + chapter_row['inferred_refs']:
             assert entry['confidence'] in {'direct', 'inferred', 'unknown'}
@@ -69,6 +70,8 @@ def test_link_conflicts_absent(tmp_path: Path, monkeypatch) -> None:
     assert matrix['link_conflicts'] == []
     assert matrix['cross_check']['conflict_summary']['total_conflicts'] == 0
     assert matrix['linker_conflicts_summary'] == {'total_conflicts': 0, 'blocking_conflicts': 0, 'conflicts': []}
+    assert matrix['cross_check']['total_refs'] >= 0
+    assert matrix['cross_check']['valid_refs'] >= 0
     assert set(matrix['cross_check']['valid_confidence_totals']) == {'direct', 'inferred', 'unknown'}
     assert all(value >= 0 for value in matrix['cross_check']['valid_confidence_totals'].values())
 
@@ -104,3 +107,5 @@ def test_link_conflicts_multiple_same_type(tmp_path: Path, monkeypatch) -> None:
     assert len(matrix['link_conflicts']) == 4
     assert {item['conflict_type'] for item in matrix['link_conflicts']} == {'chapter_target_mismatch'}
     assert matrix['cross_check']['conflict_summary']['by_type']['chapter_target_mismatch'] == 4
+    summary = matrix['linker_conflicts_summary']
+    assert 0 <= summary['blocking_conflicts'] <= summary['total_conflicts']

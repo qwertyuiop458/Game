@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tools.common import CHAPTER_COUNT, COMMON_WIDTHS, JarProject, detect_m6_chapter_count, ensure_dir, pseudo_color, u16le, write_json, write_rgba_png
+from tools.contracts import ensure_required_blocks, normalize_map_mismatch_summary
 from tools.m9_semantics import build_chapter_mission_links
 from tools.script_parser import (
     build_opcode_coverage,
@@ -1049,21 +1050,23 @@ def decode_maps(jar: Path, output: Path) -> dict:
     maps_validation = collision_validation.get('summary', {})
     mismatched_maps = maps_validation.get('maps_validation_failed', 0)
     total_maps = maps_validation.get('maps_validation_passed', 0) + mismatched_maps
-    return {
+    result = {
         'maps': report,
         'scripts': scripts,
         'collision_validation': collision_validation,
         'collision_validation_path': str((maps_dir / 'collision_validation.json').relative_to(output)),
         'mismatch_report': mismatch_report,
         'mismatch_report_path': str((maps_dir / 'mismatch_report.json').relative_to(output)),
-        'map_mismatch_summary': {
+        'map_mismatch_summary': normalize_map_mismatch_summary({
             'total_maps': total_maps,
             'mismatched_maps': mismatched_maps,
             'mismatch_details': collision_validation.get('entries', []),
             'maps_validation_passed': maps_validation.get('maps_validation_passed', 0),
             'maps_validation_failed': maps_validation.get('maps_validation_failed', 0),
-        },
+        }),
     }
+    ensure_required_blocks(result, {'map_mismatch_summary': normalize_map_mismatch_summary(None)})
+    return result
 
 
 def main() -> None:
