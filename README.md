@@ -323,3 +323,7 @@ mv platform-tools-latest-linux.zip tools/ci/vendor/platform-tools-latest-linux.z
 ```
 
 После этого `ensure_adb.sh` сможет отработать полностью оффлайн без доступа к сети.
+
+Примечание по вендорингу:
+- в репо добавлен shim `tools/ci/vendor/platform-tools/adb`;
+- для полностью автономного режима положи реальный бинарник в `tools/ci/vendor/platform-tools/adb.real` (shim автоматически подхватит его).

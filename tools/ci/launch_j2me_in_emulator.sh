@@ -240,6 +240,10 @@ assert_outcome() {
 }
 
 bootstrap_adb
+if ! adb version >/dev/null 2>&1; then
+  write_fallback_log "Resolved adb failed to execute"
+  exit 1
+fi
 
 APK_PATH="$(prepare_source "$APK_SOURCE" emulator.apk)"
 JAR_PATH="$(prepare_source "$JAR_SOURCE" game.jar)"
