@@ -39,6 +39,12 @@ def test_decode_maps_keeps_pipeline_alive_and_reports_broken_refs(monkeypatch, t
 
     validation = bundle['collision_validation']
     assert validation['summary']['maps_validation_failed'] >= 1
+
+    mismatch = bundle['map_mismatch_summary']
+    assert set(mismatch) == {'total_maps', 'mismatched_maps', 'mismatch_details', 'maps_validation_passed', 'maps_validation_failed'}
+    assert mismatch['total_maps'] >= 0
+    assert 0 <= mismatch['mismatched_maps'] <= mismatch['total_maps']
+    assert 0 <= mismatch['maps_validation_failed'] <= mismatch['total_maps']
     validation_report = json.loads((output_dir / 'extracted' / 'maps' / 'collision_validation.json').read_text(encoding='utf-8'))
     assert any(
         entry['severity'] == 'error'
@@ -63,3 +69,8 @@ def test_decode_maps_validation_passes_without_mismatch(tmp_path: Path) -> None:
     validation = bundle['collision_validation']
     assert validation['entries'] == []
     assert validation['summary'] == {'maps_validation_passed': 1, 'maps_validation_failed': 0}
+    mismatch = bundle['map_mismatch_summary']
+    assert mismatch['total_maps'] == 1
+    assert mismatch['mismatched_maps'] == 0
+    assert mismatch['maps_validation_passed'] == 1
+    assert mismatch['maps_validation_failed'] == 0

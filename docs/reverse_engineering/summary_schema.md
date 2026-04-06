@@ -34,6 +34,18 @@
 - `chapter_matrix_cross_check: object`
 - `linker_conflicts_summary: object`
 
+## 2.1) Гарантированные поля (stable contract blocks)
+
+Независимо от внутренних рефакторингов декодеров, в схеме `1.x` гарантированно присутствуют следующие блоки:
+
+- `audio_coverage`
+- `audio_validation_summary`
+- `map_mismatch_summary`
+- `chapter_matrix_cross_check`
+- `linker_conflicts_summary`
+
+Для каждого блока валидируются типы, диапазоны, неотрицательность и базовая согласованность счётчиков.
+
 ## 3) Инварианты (обязательные)
 
 ### `audio_coverage`
@@ -82,6 +94,7 @@
 
 ### Что считается backward-compatible
 
+- Сохранение всех гарантированных полей (`audio_coverage`, `audio_validation_summary`, `map_mismatch_summary`, `chapter_matrix_cross_check`, `linker_conflicts_summary`) без изменения их типов.
 - Добавление новых **необязательных** полей (top-level или nested).
 - Расширение enum-like значений без удаления существующих.
 - Уточнение документации и инвариантов без изменения фактического формата данных.
