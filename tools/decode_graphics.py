@@ -304,6 +304,48 @@ def _build_runtime_manifest(sprite: Sprite, atlas: Atlas) -> dict[str, Any]:
     }
 
 
+def _validate_frame_accounting(
+    *,
+    container: str,
+    chunk_index: int,
+    metadata_frame_count: int,
+    manifest: dict[str, Any],
+    exported_frames: list[dict[str, Any]],
+    skipped_frames: list[dict[str, Any]],
+    payloads: list[ImagePayload],
+) -> None:
+    manifest_frames_len = len(manifest['frames'])
+    manifest_skipped_len = len(manifest['skipped_frames'])
+    exported_frames_len = len(exported_frames)
+    skipped_len = len(skipped_frames)
+    payloads_len = len(payloads)
+
+    if manifest_frames_len != exported_frames_len:
+        raise ValueError(
+            f'Inconsistent frame counts for {container}/chunk_{chunk_index:02d}: '
+            f'manifest={manifest_frames_len} frames_json={exported_frames_len}'
+        )
+    if manifest_skipped_len != skipped_len:
+        raise ValueError(
+            f'Inconsistent skipped frame counts for {container}/chunk_{chunk_index:02d}: '
+            f'manifest_skipped={manifest_skipped_len} frames_json_skipped={skipped_len}'
+        )
+    if exported_frames_len + skipped_len != metadata_frame_count:
+        raise ValueError(
+            f'Inconsistent frame accounting for {container}/chunk_{chunk_index:02d}: '
+            f'metadata={metadata_frame_count} exported={exported_frames_len} skipped={skipped_len}'
+        )
+    if payloads_len != metadata_frame_count:
+        raise ValueError(
+            f'Inconsistent payload accounting for {container}/chunk_{chunk_index:02d}: '
+            f'metadata={metadata_frame_count} payloads={payloads_len}'
+        )
+    if any(item.get('decode_status') not in {'skipped', 'failed_decode'} for item in skipped_frames):
+        raise ValueError(f'Invalid skipped frame statuses for {container}/chunk_{chunk_index:02d}')
+    if any(not item.get('skipped_reason') for item in skipped_frames):
+        raise ValueError(f'Missing skipped_reason for {container}/chunk_{chunk_index:02d}')
+
+
 def _resolve_skipped_reason(atlas: Atlas, payload: ImagePayload) -> str:
     if payload.size <= 0:
         return 'empty_payload'
@@ -613,25 +655,15 @@ def decode_graphics(jar: Path, output: Path) -> dict:
                 payload.decode_status = status
                 payload.skipped_reason = skipped_reason
             manifest = _build_runtime_manifest(sprite, atlas)
-            manifest_frames_len = len(manifest['frames'])
-            exported_frames_len = len(exported_frames)
-            metadata_frame_count = metadata['frame_count']
-            if manifest_frames_len != exported_frames_len:
-                raise ValueError(
-                    f'Inconsistent frame counts for {name}/chunk_{chunk_index:02d}: '
-                    f'manifest={manifest_frames_len} frames_json={exported_frames_len}'
-                )
-            skipped_len = len(skipped_frames)
-            if exported_frames_len != metadata_frame_count:
-                if exported_frames_len + skipped_len != metadata_frame_count:
-                    raise ValueError(
-                        f'Inconsistent frame accounting for {name}/chunk_{chunk_index:02d}: '
-                        f'metadata={metadata_frame_count} exported={exported_frames_len} skipped={skipped_len}'
-                    )
-                if any(item.get('decode_status') not in {'skipped', 'failed_decode'} for item in skipped_frames):
-                    raise ValueError(f'Invalid skipped frame statuses for {name}/chunk_{chunk_index:02d}')
-                if any(not item.get('skipped_reason') for item in skipped_frames):
-                    raise ValueError(f'Missing skipped_reason for {name}/chunk_{chunk_index:02d}')
+            _validate_frame_accounting(
+                container=name,
+                chunk_index=chunk_index,
+                metadata_frame_count=metadata['frame_count'],
+                manifest=manifest,
+                exported_frames=exported_frames,
+                skipped_frames=skipped_frames,
+                payloads=sprite.payloads,
+            )
             manifest_path = pack_dir / 'manifest.json'
             write_json(manifest_path, manifest)
 
