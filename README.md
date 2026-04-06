@@ -301,6 +301,7 @@ bash tools/ci/check_github_connectivity.sh
 `tools/ci/ensure_adb.sh` теперь в первую очередь ищет оффлайн-вендоринг:
 - `tools/ci/vendor/platform-tools/adb`
 - или `tools/ci/vendor/platform-tools-latest-linux.zip` (распакует автоматически)
+- `platform-tools-latest-linux.zip` (в корне репозитория; тоже поддерживается)
 
 Подготовка (на машине с интернетом):
 
