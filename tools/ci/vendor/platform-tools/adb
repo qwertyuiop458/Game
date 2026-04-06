@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# 1) Prefer a real vendored binary placed next to this shim.
+if [[ -x "$SELF_DIR/adb.real" ]]; then
+  exec "$SELF_DIR/adb.real" "$@"
+fi
+
+# 2) Fallback to adb available in PATH, but avoid recursion to this shim.
+ADB_PATH="$(command -v adb || true)"
+if [[ -n "$ADB_PATH" && "$ADB_PATH" != "$SELF_DIR/adb" ]]; then
+  exec "$ADB_PATH" "$@"
+fi
+
+# 3) Fallback to common SDK paths.
+for candidate in \
+  "${ANDROID_SDK_ROOT:-}/platform-tools/adb" \
+  "${ANDROID_HOME:-}/platform-tools/adb" \
+  "$HOME/Android/Sdk/platform-tools/adb"; do
+  if [[ -n "$candidate" && -x "$candidate" ]]; then
+    exec "$candidate" "$@"
+  fi
+done
+
+echo "[vendored-adb-shim] adb backend not found." >&2
+echo "Place real binary at tools/ci/vendor/platform-tools/adb.real or configure Android SDK." >&2
+exit 1
