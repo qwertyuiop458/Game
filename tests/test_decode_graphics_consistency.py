@@ -10,7 +10,10 @@ from tools.graphics_decoder import Animation, Atlas, Frame, Palette, Region
 
 @pytest.mark.graphics
 @pytest.mark.extractor
-def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_decode_graphics_m11_1_chunk_00_frame_accounting_invariant(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     atlas = Atlas(
         name='m11_1',
         chunk_index=0,
@@ -57,11 +60,19 @@ def test_decode_graphics_keeps_manifest_and_frames_json_in_sync(monkeypatch: pyt
     manifest_json = json.loads(manifest)
     frames_json = json.loads(frames)
 
+    # Инвариант после фикса: число кадров учитывается во всех слоях одинаково.
     assert metadata_json['frame_count'] == 3
     assert manifest_json['frame_count'] == 3
     assert len(manifest_json['frames']) == 2
+    assert len(manifest_json['skipped_frames']) == 1
     assert len(frames_json['frames']) == 2
+    assert len(frames_json['skipped_frames']) == 1
+    assert len(frames_json['payloads']) == 3
+
+    assert len(manifest_json['frames']) == len(frames_json['frames'])
+    assert len(manifest_json['skipped_frames']) == len(frames_json['skipped_frames'])
     assert len(frames_json['frames']) + len(frames_json['skipped_frames']) == metadata_json['frame_count']
+    assert len(frames_json['payloads']) == metadata_json['frame_count']
 
     payloads_by_frame = {payload['frame_index']: payload for payload in frames_json['payloads']}
     exported_by_frame = {item['frame']: item for item in frames_json['frames']}
