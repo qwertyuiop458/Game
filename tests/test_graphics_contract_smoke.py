@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tools.decode_graphics import decode_graphics
+from tools.decode_graphics import decode_graphics, evaluate_graphics_quality_gate, validate_graphics_quality_gate
 from tools.graphics_decoder import Animation, Atlas, Frame, Palette, Region
 
 _ALLOWED_DECODE_STATUS = {'decoded', 'degraded_decode', 'failed_decode', 'skipped'}
@@ -253,3 +253,62 @@ def test_non_empty_raw_transparent_decode_is_accounted_as_degraded(
     assert quality_gate['non_empty_raw_with_alpha_nonzero'] == 0
     assert quality_gate['gate_passed'] is True
     assert quality_gate['gate_reasons'] == []
+
+
+@pytest.mark.smoke
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_graphics_quality_gate_counter_arithmetic_and_reasons() -> None:
+    quality_gate = evaluate_graphics_quality_gate(
+        total_frames=5,
+        decoded_frames=1,
+        degraded_frames=1,
+        failed_frames=1,
+        skipped_frames=1,
+        non_empty_raw_frames=1,
+        non_empty_raw_with_alpha_nonzero=2,
+        failed_non_empty_raw_frames=1,
+        reference_cases_passed=False,
+    )
+
+    assert quality_gate['gate_passed'] is False
+    assert sorted(quality_gate['gate_reasons']) == [
+        'alpha_nonzero_exceeds_non_empty_raw',
+        'frame_accounting_mismatch',
+        'non_empty_raw_failed_without_acceptable_degradation',
+        'reference_cases_failed',
+    ]
+
+
+@pytest.mark.smoke
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_graphics_quality_gate_reference_cases_control_gate_passed() -> None:
+    failing_ref_cases = evaluate_graphics_quality_gate(
+        total_frames=1,
+        decoded_frames=1,
+        degraded_frames=0,
+        failed_frames=0,
+        skipped_frames=0,
+        non_empty_raw_frames=1,
+        non_empty_raw_with_alpha_nonzero=1,
+        failed_non_empty_raw_frames=0,
+        reference_cases_passed=False,
+    )
+    assert failing_ref_cases['gate_passed'] is False
+    assert failing_ref_cases['gate_reasons'] == ['reference_cases_failed']
+
+    passing_ref_cases = evaluate_graphics_quality_gate(
+        total_frames=1,
+        decoded_frames=1,
+        degraded_frames=0,
+        failed_frames=0,
+        skipped_frames=0,
+        non_empty_raw_frames=1,
+        non_empty_raw_with_alpha_nonzero=1,
+        failed_non_empty_raw_frames=0,
+        reference_cases_passed=True,
+    )
+    validate_graphics_quality_gate(passing_ref_cases)
+    assert passing_ref_cases['gate_passed'] is True
+    assert passing_ref_cases['gate_reasons'] == []

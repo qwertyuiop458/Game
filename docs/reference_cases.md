@@ -143,3 +143,15 @@ pytest -q tests/test_graphics_decoder.py
 ```bash
 pytest -q -m smoke tests/test_smoke_contract_reference.py tests/test_graphics_contract_smoke.py tests/test_graphics_reference_cases.py
 ```
+
+## Короткий чек-лист: когда можно обновлять эталоны
+
+Обновлять `expected.json`/`preview.png.b64` допустимо только когда **всё** ниже выполнено:
+
+- [ ] Изменение декодера осознанное и описано (что именно поменялось и зачем).
+- [ ] `python3 -m tools.reference_cases --update` показывает ожидаемый diff, а не случайный шум.
+- [ ] `graphics_quality_gate` остаётся валидным: инварианты счётчиков соблюдены, `gate_reasons` объяснимы.
+- [ ] `reference_cases_passed` и `gate_passed` на smoke/regression прогонах соответствуют правилам roadmap.
+- [ ] В PR перечислены затронутые кейсы и причины изменения эталонных метрик/хэшей.
+
+Если хотя бы один пункт не выполнен, эталоны обновлять нельзя.

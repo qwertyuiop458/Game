@@ -10,6 +10,20 @@ from tools.graphics_decoder import Atlas, parse_atlas
 from tools.reference_cases import verify_reference_cases
 
 
+GRAPHICS_QUALITY_GATE_KEYS: tuple[str, ...] = (
+    'total_frames',
+    'decoded_frames',
+    'degraded_frames',
+    'failed_frames',
+    'skipped_frames',
+    'non_empty_raw_frames',
+    'non_empty_raw_with_alpha_nonzero',
+    'reference_cases_passed',
+    'gate_passed',
+    'gate_reasons',
+)
+
+
 @dataclass
 class Palette:
     index: int
@@ -104,7 +118,7 @@ def evaluate_graphics_quality_gate(
     if not reference_cases_passed:
         gate_reasons.append('reference_cases_failed')
 
-    return {
+    gate_payload = {
         'total_frames': total_frames,
         'decoded_frames': decoded_frames,
         'degraded_frames': degraded_frames,
@@ -116,6 +130,77 @@ def evaluate_graphics_quality_gate(
         'gate_passed': len(gate_reasons) == 0,
         'gate_reasons': gate_reasons,
     }
+    return {key: gate_payload[key] for key in GRAPHICS_QUALITY_GATE_KEYS}
+
+
+def validate_graphics_quality_gate(graphics_quality_gate: dict[str, Any]) -> None:
+    gate_keys = tuple(graphics_quality_gate.keys())
+    expected_keys = GRAPHICS_QUALITY_GATE_KEYS
+    if gate_keys != expected_keys:
+        raise ValueError(
+            'Invalid graphics_quality_gate schema: '
+            f'expected keys={expected_keys}, actual keys={gate_keys}'
+        )
+
+    counters = (
+        'total_frames',
+        'decoded_frames',
+        'degraded_frames',
+        'failed_frames',
+        'skipped_frames',
+        'non_empty_raw_frames',
+        'non_empty_raw_with_alpha_nonzero',
+    )
+    for key in counters:
+        value = graphics_quality_gate[key]
+        if not isinstance(value, int):
+            raise ValueError(f'graphics_quality_gate.{key} must be int, got {type(value).__name__}')
+
+    if not isinstance(graphics_quality_gate['reference_cases_passed'], bool):
+        raise ValueError('graphics_quality_gate.reference_cases_passed must be bool')
+    if not isinstance(graphics_quality_gate['gate_passed'], bool):
+        raise ValueError('graphics_quality_gate.gate_passed must be bool')
+    if not isinstance(graphics_quality_gate['gate_reasons'], list) or any(
+        not isinstance(reason, str) for reason in graphics_quality_gate['gate_reasons']
+    ):
+        raise ValueError('graphics_quality_gate.gate_reasons must be list[str]')
+
+    invariant_reasons: list[str] = []
+    for key in counters:
+        if graphics_quality_gate[key] < 0:
+            invariant_reasons.append(f'negative_counter:{key}')
+    if (
+        graphics_quality_gate['decoded_frames']
+        + graphics_quality_gate['degraded_frames']
+        + graphics_quality_gate['failed_frames']
+        + graphics_quality_gate['skipped_frames']
+        != graphics_quality_gate['total_frames']
+    ):
+        invariant_reasons.append('frame_accounting_mismatch')
+    if (
+        graphics_quality_gate['non_empty_raw_with_alpha_nonzero']
+        > graphics_quality_gate['non_empty_raw_frames']
+    ):
+        invariant_reasons.append('alpha_nonzero_exceeds_non_empty_raw')
+    if not graphics_quality_gate['reference_cases_passed']:
+        invariant_reasons.append('reference_cases_failed')
+    if 'non_empty_raw_failed_without_acceptable_degradation' in graphics_quality_gate['gate_reasons']:
+        invariant_reasons.append('non_empty_raw_failed_without_acceptable_degradation')
+
+    expected_reasons = sorted(set(invariant_reasons))
+    actual_reasons = sorted(set(graphics_quality_gate['gate_reasons']))
+    if actual_reasons != expected_reasons:
+        raise ValueError(
+            'graphics_quality_gate.gate_reasons mismatch: '
+            f'expected={expected_reasons}, actual={actual_reasons}'
+        )
+
+    expected_gate_passed = len(expected_reasons) == 0
+    if graphics_quality_gate['gate_passed'] != expected_gate_passed:
+        raise ValueError(
+            'graphics_quality_gate.gate_passed mismatch: '
+            f'expected={expected_gate_passed}, actual={graphics_quality_gate["gate_passed"]}'
+        )
 
 
 def _export_palette_previews(output: Path, atlas: Atlas, pack_name: str) -> list[str]:
@@ -727,6 +812,7 @@ def decode_graphics(jar: Path, output: Path) -> dict:
         failed_non_empty_raw_frames=failed_non_empty_raw_frames,
         reference_cases_passed=reference_cases_passed,
     )
+    validate_graphics_quality_gate(quality_gate)
     result['graphics_quality_gate'] = quality_gate
     graphics_manifest['graphics_quality_gate'] = quality_gate
     write_json(extracted_images_dir / 'index.json', result)
