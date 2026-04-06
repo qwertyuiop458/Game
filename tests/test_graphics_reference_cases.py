@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tools.decode_graphics import _render_frame_with_diagnostics
-from tools.decode_graphics import decode_graphics
+from tools.decode_graphics import decode_graphics, evaluate_graphics_quality_gate, validate_graphics_quality_gate
 from tools.graphics_decoder import parse_atlas
 from tools.reference_cases import _build_expected_case, load_reference_cases, verify_reference_cases
 
@@ -133,3 +133,53 @@ def test_problematic_runtime_packs_frames_json_contract(tmp_path: Path) -> None:
             raw_sizes.append(len(raw_payload))
 
         assert any(size > 0 for size in raw_sizes)
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_graphics_quality_gate_schema_is_fixed_and_validated() -> None:
+    gate = evaluate_graphics_quality_gate(
+        total_frames=2,
+        decoded_frames=1,
+        degraded_frames=1,
+        failed_frames=0,
+        skipped_frames=0,
+        non_empty_raw_frames=1,
+        non_empty_raw_with_alpha_nonzero=1,
+        failed_non_empty_raw_frames=0,
+        reference_cases_passed=True,
+    )
+
+    validate_graphics_quality_gate(gate)
+    assert tuple(gate.keys()) == (
+        'total_frames',
+        'decoded_frames',
+        'degraded_frames',
+        'failed_frames',
+        'skipped_frames',
+        'non_empty_raw_frames',
+        'non_empty_raw_with_alpha_nonzero',
+        'reference_cases_passed',
+        'gate_passed',
+        'gate_reasons',
+    )
+
+
+@pytest.mark.graphics
+@pytest.mark.extractor
+def test_graphics_quality_gate_non_empty_raw_failure_forces_gate_fail() -> None:
+    gate = evaluate_graphics_quality_gate(
+        total_frames=1,
+        decoded_frames=0,
+        degraded_frames=0,
+        failed_frames=1,
+        skipped_frames=0,
+        non_empty_raw_frames=1,
+        non_empty_raw_with_alpha_nonzero=0,
+        failed_non_empty_raw_frames=1,
+        reference_cases_passed=True,
+    )
+
+    assert gate['gate_passed'] is False
+    assert gate['gate_reasons'] == ['non_empty_raw_failed_without_acceptable_degradation']
+    validate_graphics_quality_gate(gate)
